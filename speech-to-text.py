@@ -3,6 +3,7 @@
 from openai import OpenAI
 from pathlib import Path
 from dotenv import load_dotenv
+from datetime import datetime
 
 # Load environment variables from .env file
 load_dotenv()
@@ -26,8 +27,16 @@ client = OpenAI()
 audio_file = open(FILE_PATH, "rb")
 
 transcription = client.audio.transcriptions.create(
-    model="gpt-4o-mini-transcribe",
+    model="gpt-4o-transcribe",
     file=audio_file
 )
 
+# Save transcription to text file
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+output_path = SCRIPT_DIR / f"transcription_{timestamp}.txt"
+with open(output_path, "w") as text_file:
+    text_file.write(transcription.text)
+
+# Also print the transcription
+print(f"Transcription saved to {output_path}")
 print(transcription.text)
