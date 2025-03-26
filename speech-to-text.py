@@ -2,23 +2,16 @@
 
 from openai import OpenAI
 from pathlib import Path
-import os
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Get API key from environment variable
-API_KEY = os.environ.get("OPENAI_API_KEY")
-if not API_KEY:
-    raise ValueError("Missing OPENAI_API_KEY environment variable")
-
-
 SCRIPT_DIR = Path(__file__).parent.resolve()
 RECORDING_FILENAME = "record.mp4"  # Replace with your actual audio file name
 FILE_PATH = SCRIPT_DIR / RECORDING_FILENAME
 
-client = OpenAI(api_key=API_KEY)
+client = OpenAI()
 # In Python, "rb" is a mode parameter used when opening files. It means "read
 # binary".
 #

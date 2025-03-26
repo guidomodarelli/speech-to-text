@@ -21,3 +21,5 @@ venv/
 *.wma
 *.aiff
 *.au
+
+.env
