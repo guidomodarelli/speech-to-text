@@ -332,7 +332,7 @@ def combine_chunks_sequentially(chunk_transcriptions: list[str], client: OpenAI)
     for i in range(1, len(chunk_transcriptions)):
         prev_chunk = chunk_transcriptions[i-1]
         curr_chunk = chunk_transcriptions[i]
-        processed_chunks.append(" ".join(prev_chunk.split(" ")[:-BOUNDARY_WORD_COUNT]))
+        processed_chunks.append(exclude_last_boundary_words(prev_chunk))
 
         print(f"Processing boundary between chunks {i}/{len(chunk_transcriptions)-1}...")
 
@@ -363,6 +363,10 @@ def combine_chunks_sequentially(chunk_transcriptions: list[str], client: OpenAI)
 
     # Join all processed chunks with spaces
     return " ".join(processed_chunks)
+
+def exclude_last_boundary_words(prev_chunk):
+    """ Exclude the last N words from the previous chunk to avoid duplication in the boundary """
+    return " ".join(prev_chunk.split(" ")[:-BOUNDARY_WORD_COUNT])
 
 client = OpenAI()
 
