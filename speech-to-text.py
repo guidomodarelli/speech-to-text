@@ -226,7 +226,7 @@ def split_audio_file(file_path: Path, chunk_duration_minutes=MAX_CHUNK_DURATION,
             subprocess.run(cmd, check=True)
             chunk_files.append(output_file)
 
-        print(f"Split audio into {len(chunk_files)} chunks with {overlap_seconds}-second{"s" if overlap_seconds > 1 else ""} overlap in {chunks_dir}")
+        print(f"Split audio into {len(chunk_files)} chunks with {overlap_seconds}-second{'s' if overlap_seconds > 1 else ''} overlap in {chunks_dir}")
         return chunk_files
 
     except Exception as e:
