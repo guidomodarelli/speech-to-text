@@ -310,8 +310,8 @@ if not FILE_PATH.exists():
     sys.exit(1)
 
 # Split the audio into chunks
-print("Splitting audio into 7-minute chunks...")
-audio_chunks = split_audio_file(FILE_PATH, chunk_duration_minutes=7)
+print(f"Splitting audio into {MAX_CHUNK_DURATION}-minute chunks...")
+audio_chunks = split_audio_file(FILE_PATH)
 
 if not audio_chunks:
     print("No audio chunks were created. Trying to transcribe the entire file...")
