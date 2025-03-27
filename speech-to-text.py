@@ -26,6 +26,7 @@ RECORDING_FILENAME = os.environ.get("RECORDING_FILENAME", "record.mp4")
 # Get output format from env var or use default
 OUTPUT_FORMAT = os.environ.get("OUTPUT_FORMAT", "transcription_{timestamp}.txt")
 FILE_PATH = ROOT_DIR / RECORDING_FILENAME
+MAX_CHUNK_DURATION = 7  # Maximum duration of each audio chunk in minutes
 
 # Function to check if file exists and ask for confirmation
 def should_overwrite_file(file_path):
@@ -140,7 +141,7 @@ def get_audio_duration(file_path):
         print(f"Error getting audio duration: {e}")
         return 0
 
-def split_audio_file(file_path, chunk_duration_minutes=7, overlap_seconds=1):
+def split_audio_file(file_path: Path, chunk_duration_minutes=MAX_CHUNK_DURATION):
     """Split audio file into chunks of specified duration with overlap to avoid cutting words"""
     try:
         # Check if ffmpeg is installed
@@ -165,6 +166,8 @@ def split_audio_file(file_path, chunk_duration_minutes=7, overlap_seconds=1):
             return []
 
         chunk_files = []
+        overlap_seconds = 1
+
         # Generate chunks with overlap
         for i, start_time in enumerate(range(0, int(total_duration), chunk_duration_seconds)):
             # Adjust start time to include overlap from previous chunk (except for first chunk)
@@ -195,7 +198,7 @@ def split_audio_file(file_path, chunk_duration_minutes=7, overlap_seconds=1):
             subprocess.run(cmd, check=True)
             chunk_files.append(output_file)
 
-        print(f"Split audio into {len(chunk_files)} chunks with 1-second overlap in {chunks_dir}")
+        print(f"Split audio into {len(chunk_files)} chunks with {overlap_seconds}-second{"s" if overlap_seconds > 1 else ""} overlap in {chunks_dir}")
         return chunk_files
 
     except Exception as e:
