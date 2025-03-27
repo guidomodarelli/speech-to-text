@@ -29,6 +29,14 @@ FILE_PATH = ROOT_DIR / RECORDING_FILENAME
 # Number of words to use when processing chunk boundaries
 BOUNDARY_WORD_COUNT = 25
 MAX_CHUNK_DURATION = 7  # Maximum duration of each audio chunk in minutes
+# Maximum time to process from the audio file (in seconds, None for entire file)
+MAX_PROCESSING_DURATION = os.environ.get("MAX_PROCESSING_DURATION")
+if MAX_PROCESSING_DURATION is not None:
+    try:
+        MAX_PROCESSING_DURATION = float(MAX_PROCESSING_DURATION)
+    except ValueError:
+        print(f"Invalid MAX_PROCESSING_DURATION: {MAX_PROCESSING_DURATION}. Using entire file.")
+        MAX_PROCESSING_DURATION = None
 
 # Function to check if file exists and ask for confirmation
 def should_overwrite_file(file_path):
@@ -143,8 +151,18 @@ def get_audio_duration(file_path):
         print(f"Error getting audio duration: {e}")
         return 0
 
-def split_audio_file(file_path: Path, chunk_duration_minutes=MAX_CHUNK_DURATION):
-    """Split audio file into chunks of specified duration with overlap to avoid cutting words"""
+def split_audio_file(file_path: Path, chunk_duration_minutes=MAX_CHUNK_DURATION, max_duration=MAX_PROCESSING_DURATION):
+    """
+    Split audio file into chunks of specified duration with overlap to avoid cutting words.
+
+    Args:
+        file_path: Path to the audio file
+        chunk_duration_minutes: Duration of each chunk in minutes
+        max_duration: Maximum duration to process in seconds (None for entire file)
+
+    Returns:
+        List of paths to the chunk files
+    """
     try:
         # Check if ffmpeg is installed
         try:
@@ -167,19 +185,27 @@ def split_audio_file(file_path: Path, chunk_duration_minutes=MAX_CHUNK_DURATION)
             print("Could not determine file duration")
             return []
 
+        # Limit processing duration if specified
+        if max_duration is not None and max_duration > 0:
+            processing_duration = min(total_duration, max_duration)
+            print(f"Processing only the first {processing_duration} seconds of audio (out of {total_duration} total)")
+        else:
+            processing_duration = total_duration
+            print(f"Processing entire audio file ({total_duration} seconds)")
+
         chunk_files = []
         overlap_seconds = 1
 
         # Generate chunks with overlap
-        for i, start_time in enumerate(range(0, int(total_duration), chunk_duration_seconds)):
+        for i, start_time in enumerate(range(0, int(processing_duration), chunk_duration_seconds)):
             # Adjust start time to include overlap from previous chunk (except for first chunk)
             adjusted_start = max(0, start_time - overlap_seconds) if i > 0 else 0
 
             # Adjust duration to include overlap with next chunk
-            # For the last chunk, make sure we don't exceed the total duration
-            if start_time + chunk_duration_seconds >= total_duration:
-                # Last chunk - go until the end of the file
-                duration = total_duration - adjusted_start
+            # For the last chunk, make sure we don't exceed the processing duration
+            if start_time + chunk_duration_seconds >= processing_duration:
+                # Last chunk - go until the end of the processing duration
+                duration = processing_duration - adjusted_start
             else:
                 # Add overlap to duration
                 duration = (start_time + chunk_duration_seconds + overlap_seconds) - adjusted_start
