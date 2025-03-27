@@ -27,7 +27,7 @@ RECORDING_FILENAME = os.environ.get("RECORDING_FILENAME", "record.mp4")
 OUTPUT_FORMAT = os.environ.get("OUTPUT_FORMAT", "transcription_{timestamp}.txt")
 FILE_PATH = ROOT_DIR / RECORDING_FILENAME
 # Number of words to use when processing chunk boundaries
-BOUNDARY_WORD_COUNT = 25
+BOUNDARY_WORD_COUNT = 50
 MAX_CHUNK_DURATION = 7  # Maximum duration of each audio chunk in minutes
 # Maximum time to process from the audio file (in seconds, None for entire file)
 MAX_PROCESSING_DURATION = os.environ.get("MAX_PROCESSING_DURATION")
@@ -349,10 +349,10 @@ def combine_chunks_sequentially(chunk_transcriptions: list[str], client: OpenAI)
 
         # Extract words that aren't part of our boundary overlap processing
         words_in_curr_chunk = curr_chunk.split(" ")
+        processed_chunks[-1] = exclude_last_boundary_words(processed_chunks[-1])
         if len(words_in_curr_chunk) > BOUNDARY_WORD_COUNT:
             # Keep everything except the first N words that were already processed in the boundary
             remaining_text = " ".join(words_in_curr_chunk[BOUNDARY_WORD_COUNT:])
-            processed_chunks[-1] = exclude_last_boundary_words(processed_chunks[-1])
             processed_chunks.append(boundary_text + " " + remaining_text)
         else:
             # If the chunk is small, just use the boundary text
