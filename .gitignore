@@ -1,4 +1,11 @@
+# Python virtual environment
 venv/
+__pycache__/
+
+# Environment variables
+.env
+
+# Video files
 *.mkv
 *.mp4
 *.avi
@@ -12,6 +19,8 @@ venv/
 *.3gp
 *.3g2
 *.ogv
+
+# Audio files
 *.mp3
 *.wav
 *.flac
@@ -22,8 +31,5 @@ venv/
 *.aiff
 *.au
 
-.env
-
+# Generated transcription files
 transcription_*
-
-__pycache__/
