@@ -326,36 +326,32 @@ def combine_chunks_sequentially(chunk_transcriptions: list[str], client: OpenAI)
         return chunk_transcriptions[0]
 
     # Create a list of processed chunks, starting with the first chunk as-is
-    processed_chunks = []
+    processed_chunks = [exclude_last_boundary_words(chunk_transcriptions[0])]
 
     # For each subsequent chunk
     for i in range(1, len(chunk_transcriptions)):
-        prev_chunk = chunk_transcriptions[i-1]
-        curr_chunk = chunk_transcriptions[i]
-        processed_chunks.append(exclude_last_boundary_words(prev_chunk))
-
         print(f"Processing boundary between chunks {i}/{len(chunk_transcriptions)-1}...")
 
-        # Extract the last N words from the first chunk
-        end_of_first = get_boundary_text(prev_chunk, is_start=False, word_count=BOUNDARY_WORD_COUNT)
+        prev_chunk = chunk_transcriptions[i-1]
+        if i > 1:
+            prev_chunk = processed_chunks[-1]
+        curr_chunk = chunk_transcriptions[i]
 
-        print(f"End of first: {end_of_first}")
+        # Extract the last N words from the first chunk
+        end_of_first = get_boundary_text(prev_chunk, is_start=False)
 
         # Extract the first N words from the second chunk
-        start_of_second = get_boundary_text(curr_chunk, is_start=True, word_count=BOUNDARY_WORD_COUNT)
-
-        print(f"Start of second: {start_of_second}")
+        start_of_second = get_boundary_text(curr_chunk, is_start=True)
 
         # Combine the boundaries
         boundary_text = combine_chunk_boundaries(end_of_first, start_of_second, client)
-
-        print(f"Combined boundary: {boundary_text}")
 
         # Extract words that aren't part of our boundary overlap processing
         words_in_curr_chunk = curr_chunk.split(" ")
         if len(words_in_curr_chunk) > BOUNDARY_WORD_COUNT:
             # Keep everything except the first N words that were already processed in the boundary
             remaining_text = " ".join(words_in_curr_chunk[BOUNDARY_WORD_COUNT:])
+            processed_chunks[-1] = exclude_last_boundary_words(processed_chunks[-1])
             processed_chunks.append(boundary_text + " " + remaining_text)
         else:
             # If the chunk is small, just use the boundary text
