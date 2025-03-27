@@ -16,7 +16,7 @@ except ImportError:
     sys.exit(1)
 
 # Load environment variables from .env file
-load_dotenv()
+load_dotenv(override=True)
 
 YOUTUBE_URL = os.environ.get("YOUTUBE_URL")
 
