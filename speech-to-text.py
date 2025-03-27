@@ -129,6 +129,77 @@ def try_ytdlp_download(url, output_path):
         print(f"Error using yt-dlp: {e}")
         return False
 
+def get_audio_duration(file_path):
+    """Get the duration of an audio file in seconds using ffmpeg"""
+    try:
+        cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+               '-of', 'default=noprint_wrappers=1:nokey=1', str(file_path)]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        return float(result.stdout.strip())
+    except Exception as e:
+        print(f"Error getting audio duration: {e}")
+        return 0
+
+def split_audio_file(file_path, chunk_duration_minutes=7):
+    """Split audio file into chunks of specified duration"""
+    try:
+        # Check if ffmpeg is installed
+        try:
+            subprocess.run(['ffmpeg', '-version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        except (subprocess.SubprocessError, FileNotFoundError):
+            print("ffmpeg not found. Please install ffmpeg.")
+            return []
+
+        # Create directory for chunks
+        parent_dir = file_path.parent
+        chunks_dir = parent_dir / f"{file_path.stem}_chunks"
+        chunks_dir.mkdir(exist_ok=True)
+
+        # Convert minutes to seconds
+        chunk_duration_seconds = chunk_duration_minutes * 60
+
+        # Get the total duration
+        total_duration = get_audio_duration(file_path)
+        if total_duration <= 0:
+            print("Could not determine file duration")
+            return []
+
+        chunk_files = []
+        # Generate chunks
+        for i, start_time in enumerate(range(0, int(total_duration), chunk_duration_seconds)):
+            output_file = chunks_dir / f"chunk_{i:03d}{file_path.suffix}"
+
+            # Use ffmpeg to extract the chunk
+            cmd = [
+                'ffmpeg',
+                '-i', str(file_path),
+                '-ss', str(start_time),
+                '-t', str(chunk_duration_seconds),
+                '-c', 'copy',
+                '-y',  # Overwrite output files without asking
+                str(output_file)
+            ]
+
+            subprocess.run(cmd, check=True)
+            chunk_files.append(output_file)
+
+        print(f"Split audio into {len(chunk_files)} chunks in {chunks_dir}")
+        return chunk_files
+
+    except Exception as e:
+        print(f"Error splitting audio file: {e}")
+        return []
+
+def transcribe_file(file_path, client):
+    """Transcribe a single file using OpenAI API"""
+    print(f"Transcribing {file_path}...")
+    with open(file_path, "rb") as audio_file:
+        transcription = client.audio.transcriptions.create(
+            model="gpt-4o-transcribe",
+            file=audio_file
+        )
+    return transcription.text
+
 client = OpenAI()
 
 # Check if YouTube URL is provided and download the video
@@ -147,30 +218,31 @@ if not FILE_PATH.exists():
     print(f"Error: File not found at {FILE_PATH}")
     sys.exit(1)
 
-# In Python, "rb" is a mode parameter used when opening files. It means "read
-# binary".
-#
-# - "r" indicates that the file is opened for reading (not writing)
-# - "b" indicates binary mode, which is important when dealing with non-text
-#   files like audio
-#
-# When you open the audio file with `open(FILE_PATH, "rb")`, you're opening it
-# in binary read mode, which is necessary because audio files contain binary
-# data rather than text. This allows Python to properly read the file's contents
-# without attempting to decode it as text.
-with open(FILE_PATH, "rb") as audio_file:
-    transcription = client.audio.transcriptions.create(
-        model="gpt-4o-transcribe",
-        file=audio_file
-    )
+# Split the audio into chunks
+print("Splitting audio into 7-minute chunks...")
+audio_chunks = split_audio_file(FILE_PATH, chunk_duration_minutes=7)
+
+if not audio_chunks:
+    print("No audio chunks were created. Trying to transcribe the entire file...")
+    # Fall back to transcribing the whole file
+    transcription_text = transcribe_file(FILE_PATH, client)
+else:
+    # Transcribe each chunk and concatenate the results
+    print(f"Transcribing {len(audio_chunks)} audio chunks...")
+    transcription_text = ""
+
+    for i, chunk_file in enumerate(audio_chunks):
+        print(f"Processing chunk {i+1}/{len(audio_chunks)}...")
+        chunk_transcription = transcribe_file(chunk_file, client)
+        transcription_text += chunk_transcription + "\n\n"
 
 # Save transcription to text file
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 output_filename = OUTPUT_FORMAT.format(timestamp=timestamp)
 output_path = ROOT_DIR / output_filename
 with open(output_path, "w") as text_file:
-    text_file.write(transcription.text)
+    text_file.write(transcription_text)
 
 # Also print the transcription
 print(f"Transcription saved to {output_path}")
-print(transcription.text)
+print(transcription_text)
