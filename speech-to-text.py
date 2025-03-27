@@ -38,15 +38,6 @@ if MAX_PROCESSING_DURATION is not None:
         print(f"Invalid MAX_PROCESSING_DURATION: {MAX_PROCESSING_DURATION}. Using entire file.")
         MAX_PROCESSING_DURATION = None
 
-# Function to check if file exists and ask for confirmation
-def should_overwrite_file(file_path):
-    if not file_path.exists():
-        return True
-
-    print(f"File already exists at {file_path}")
-    response = input("Do you want to download and overwrite? (y/n): ").strip().lower()
-    return response == 'y' or response == 'yes'
-
 # Function to download YouTube video if URL is provided
 def download_youtube_video(url, output_path):
     # First try with pytube
@@ -415,13 +406,10 @@ client = OpenAI()
 # Check if YouTube URL is provided and download the video
 if YOUTUBE_URL:
     # Check if file exists and ask before downloading
-    if should_overwrite_file(FILE_PATH):
-        if not download_youtube_video(YOUTUBE_URL, FILE_PATH):
-            print("Failed to download YouTube video. Exiting.")
-            sys.exit(1)
-        print(f"Successfully downloaded YouTube video to {FILE_PATH}")
-    else:
-        print(f"Using existing file at {FILE_PATH}")
+    if not download_youtube_video(YOUTUBE_URL, FILE_PATH):
+        print("Failed to download YouTube video. Exiting.")
+        sys.exit(1)
+    print(f"Successfully downloaded YouTube video to {FILE_PATH}")
 
 # Ensure the file exists before proceeding
 if not FILE_PATH.exists():
