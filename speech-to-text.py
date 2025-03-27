@@ -7,6 +7,7 @@ from datetime import datetime
 import os
 import sys
 import subprocess
+from lib.logger import log_error, log_cyan, log_bold
 
 # Load environment variables from .env file
 load_dotenv(override=True)
@@ -41,7 +42,7 @@ def ytdlp_download(url: str, output_path: Path):
         try:
             subprocess.run(['yt-dlp', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
         except (subprocess.SubprocessError, FileNotFoundError):
-            print("yt-dlp not found. Please install it with: pip install yt-dlp")
+            log_error(f"{log_bold(log_cyan('yt-dlp'))} not found. Please install it with: {log_cyan('pip install yt-dlp')}")
             return False
 
         # Modify output path to use .mp3 for audio downloads
