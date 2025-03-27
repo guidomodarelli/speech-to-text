@@ -291,6 +291,53 @@ def combine_chunk_boundaries(text1: str, text2: str, client: OpenAI) -> str:
 
     return response.choices[0].message.content
 
+def combine_chunks_sequentially(chunk_transcriptions: list[str], client: OpenAI) -> str:
+    """Combine chunks sequentially with overlaps (1-2, 2-3, 3-4, etc.) focusing on boundaries"""
+    if not chunk_transcriptions:
+        return ""
+
+    if len(chunk_transcriptions) == 1:
+        return chunk_transcriptions[0]
+
+    # Create a list of processed chunks, starting with the first chunk as-is
+    processed_chunks = []
+
+    # For each subsequent chunk
+    for i in range(1, len(chunk_transcriptions)):
+        prev_chunk = chunk_transcriptions[i-1]
+        curr_chunk = chunk_transcriptions[i]
+        processed_chunks.append(" ".join(prev_chunk.split(" ")[:-BOUNDARY_WORD_COUNT]))
+
+        print(f"Processing boundary between chunks {i}/{len(chunk_transcriptions)-1}...")
+
+        # Extract the last N words from the first chunk
+        end_of_first = get_boundary_text(prev_chunk, is_start=False, word_count=BOUNDARY_WORD_COUNT)
+
+        print(f"End of first: {end_of_first}")
+
+        # Extract the first N words from the second chunk
+        start_of_second = get_boundary_text(curr_chunk, is_start=True, word_count=BOUNDARY_WORD_COUNT)
+
+        print(f"Start of second: {start_of_second}")
+
+        # Combine the boundaries
+        boundary_text = combine_chunk_boundaries(end_of_first, start_of_second, client)
+
+        print(f"Combined boundary: {boundary_text}")
+
+        # Extract words that aren't part of our boundary overlap processing
+        words_in_curr_chunk = curr_chunk.split(" ")
+        if len(words_in_curr_chunk) > BOUNDARY_WORD_COUNT:
+            # Keep everything except the first N words that were already processed in the boundary
+            remaining_text = " ".join(words_in_curr_chunk[BOUNDARY_WORD_COUNT:])
+            processed_chunks.append(boundary_text + " " + remaining_text)
+        else:
+            # If the chunk is small, just use the boundary text
+            processed_chunks.append(boundary_text)
+
+    # Join all processed chunks with spaces
+    return " ".join(processed_chunks)
+
 client = OpenAI()
 
 # Check if YouTube URL is provided and download the video
@@ -328,24 +375,9 @@ else:
         chunk_transcription = transcribe_file(chunk_file, client)
         chunk_transcriptions.append(chunk_transcription)
 
-    # Then combine every two chunks using gpt-4o-mini
-    combined_transcriptions: list[str] = []
-    for i in range(0, len(chunk_transcriptions), 2):
-        if i + 1 < len(chunk_transcriptions):
-            # Combine two consecutive chunks
-            print(f"Combining chunks {i+1} and {i+2} with gpt-4o-mini...")
-            combined_text = combine_transcriptions(
-                chunk_transcriptions[i],
-                chunk_transcriptions[i+1],
-                client
-            )
-            combined_transcriptions.append(combined_text)
-        else:
-            # Add the last chunk directly if there's an odd number of chunks
-            combined_transcriptions.append(chunk_transcriptions[i])
-
-    # Join all combined transcriptions with new lines
-    transcription_text = "\n\n".join(combined_transcriptions)
+    # Combine chunks sequentially (1-2, 2-3, 3-4, etc.)
+    print("Combining chunks sequentially...")
+    transcription_text = combine_chunks_sequentially(chunk_transcriptions, client)
 
 # Save transcription to text file
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
