@@ -197,7 +197,7 @@ def split_audio_file(file_path: Path, chunk_duration_minutes=MAX_CHUNK_DURATION,
             print(f"Processing entire audio file ({total_duration} seconds)")
 
         chunk_files = []
-        overlap_seconds = 1
+        overlap_seconds = 3 # Overlap duration in seconds
 
         # Generate chunks with overlap
         for i, start_time in enumerate(range(0, int(processing_duration), chunk_duration_seconds)):
