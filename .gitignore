@@ -25,3 +25,5 @@ venv/
 .env
 
 transcription_*
+
+__pycache__/
