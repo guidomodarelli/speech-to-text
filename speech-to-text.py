@@ -364,7 +364,10 @@ def combine_chunk_boundaries(text1: str, text2: str, client: OpenAI) -> str:
         ]
     )
 
-    return response.choices[0].message.content
+    combined_content = response.choices[0].message.content
+
+    print(f"Combined content: '{combined_content}'")
+    return combined_content
 
 def combine_chunks_sequentially(chunk_transcriptions: list[str], client: OpenAI) -> str:
     """Combine chunks sequentially with overlaps (1-2, 2-3, 3-4, etc.) focusing on boundaries"""
