@@ -7,7 +7,7 @@ from datetime import datetime
 import os
 import sys
 import subprocess
-from lib.logger import log_error, log_cyan, log_bold
+from lib.logger import log_error, log_cyan, log_bold, log_success, log_info, log_warning
 
 # Load environment variables from .env file
 load_dotenv(override=True)
@@ -29,7 +29,7 @@ if MAX_PROCESSING_DURATION is not None:
     try:
         MAX_PROCESSING_DURATION = float(MAX_PROCESSING_DURATION)
     except ValueError:
-        print(f"Invalid MAX_PROCESSING_DURATION: {MAX_PROCESSING_DURATION}. Using entire file.")
+        log_error(f"Invalid MAX_PROCESSING_DURATION: {MAX_PROCESSING_DURATION}. Using entire file.")
         MAX_PROCESSING_DURATION = None
 
 # Function to download YouTube video if URL is provided
@@ -56,9 +56,9 @@ def ytdlp_download(url: str, output_path: Path):
 
         if FILE_PATH.exists():
             # Remove the existing file if it exists
-            print(f"Removing existing file: {FILE_PATH}")
+            log_info(f"Removing existing file: {FILE_PATH}")
             FILE_PATH.unlink()
-            print(f"Removed existing file: {FILE_PATH}")
+            log_info(f"Removed existing file: {FILE_PATH}")
 
         # Set up the command to extract audio only and save to the specified path
         cmd = [
@@ -70,17 +70,17 @@ def ytdlp_download(url: str, output_path: Path):
             url
         ]
 
-        print(f"Running: {' '.join(cmd)}")
+        log_info(f"Running: {' '.join(cmd)}")
         result = subprocess.run(cmd, check=True)
 
         if result.returncode == 0:
-            print("Successfully downloaded audio using yt-dlp")
+            log_success("Successfully downloaded audio using yt-dlp")
             return True
         else:
-            print(f"yt-dlp exited with code {result.returncode}")
+            log_error(f"yt-dlp exited with code {result.returncode}")
             return False
     except Exception as e:
-        print(f"Error using yt-dlp: {e}")
+        log_error(f"Error using yt-dlp: {e}")
         return False
 
 def get_audio_duration(file_path):
@@ -91,7 +91,7 @@ def get_audio_duration(file_path):
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
         return float(result.stdout.strip())
     except Exception as e:
-        print(f"Error getting audio duration: {e}")
+        log_error(f"Error getting audio duration: {e}")
         return 0
 
 def split_audio_file(file_path: Path, chunk_duration_minutes=MAX_CHUNK_DURATION, max_duration=MAX_PROCESSING_DURATION):
@@ -111,7 +111,7 @@ def split_audio_file(file_path: Path, chunk_duration_minutes=MAX_CHUNK_DURATION,
         try:
             subprocess.run(['ffmpeg', '-version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
         except (subprocess.SubprocessError, FileNotFoundError):
-            print("ffmpeg not found. Please install ffmpeg.")
+            log_error("ffmpeg not found. Please install ffmpeg.")
             return []
 
         # Create directory for chunks
@@ -125,16 +125,16 @@ def split_audio_file(file_path: Path, chunk_duration_minutes=MAX_CHUNK_DURATION,
         # Get the total duration
         total_duration = get_audio_duration(file_path)
         if total_duration <= 0:
-            print("Could not determine file duration")
+            log_error("Could not determine file duration")
             return []
 
         # Limit processing duration if specified
         if max_duration is not None and max_duration > 0:
             processing_duration = min(total_duration, max_duration)
-            print(f"Processing only the first {processing_duration} seconds of audio (out of {total_duration} total)")
+            log_info(f"Processing only the first {processing_duration} seconds of audio (out of {total_duration} total)")
         else:
             processing_duration = total_duration
-            print(f"Processing entire audio file ({total_duration} seconds)")
+            log_info(f"Processing entire audio file ({total_duration} seconds)")
 
         chunk_files = []
         overlap_seconds = 3 # Overlap duration in seconds
@@ -169,16 +169,16 @@ def split_audio_file(file_path: Path, chunk_duration_minutes=MAX_CHUNK_DURATION,
             subprocess.run(cmd, check=True)
             chunk_files.append(output_file)
 
-        print(f"Split audio into {len(chunk_files)} chunks with {overlap_seconds}-second{'s' if overlap_seconds > 1 else ''} overlap in {chunks_dir}")
+        log_success(f"Split audio into {len(chunk_files)} chunks with {overlap_seconds}-second{'s' if overlap_seconds > 1 else ''} overlap in {chunks_dir}")
         return chunk_files
 
     except Exception as e:
-        print(f"Error splitting audio file: {e}")
+        log_error(f"Error splitting audio file: {e}")
         return []
 
 def transcribe_file(file_path: Path, client: OpenAI):
     """Transcribe a single file using OpenAI API"""
-    print(f"Transcribing {file_path}...")
+    log_info(f"Transcribing {file_path}...")
     with open(file_path, "rb") as audio_file:
         transcription = client.audio.transcriptions.create(
             model="gpt-4o-mini-transcribe",
@@ -223,7 +223,7 @@ def improve_transcription(transcription: str, client: OpenAI) -> str:
     Returns:
         The improved transcription text
     """
-    print("Improving transcription...")
+    log_info("Improving transcription...")
 
     # Create a prompt for improving the transcription
     prompt = f"""
@@ -269,7 +269,7 @@ def combine_chunk_boundaries(text1: str, text2: str, client: OpenAI) -> str:
     Returns:
         The boundary transition text with overlaps resolved
     """
-    print(f"Combining boundary: '{text1}' + '{text2}'")
+    log_info(f"Combining boundary: '{text1}' + '{text2}'")
 
     # Create a prompt for combining just the boundaries
     prompt = f"""
@@ -306,7 +306,7 @@ def combine_chunk_boundaries(text1: str, text2: str, client: OpenAI) -> str:
 
     combined_content = response.choices[0].message.content
 
-    print(f"Combined content: '{combined_content}'")
+    log_info(f"Combined content: '{combined_content}'")
     return combined_content
 
 def combine_chunks_sequentially(chunk_transcriptions: list[str], client: OpenAI) -> str:
@@ -322,7 +322,7 @@ def combine_chunks_sequentially(chunk_transcriptions: list[str], client: OpenAI)
 
     # For each subsequent chunk
     for i in range(1, len(chunk_transcriptions)):
-        print(f"Processing boundary between chunks {i}/{len(chunk_transcriptions)-1}...")
+        log_info(f"Processing boundary between chunks {i}/{len(chunk_transcriptions)-1}...")
 
         prev_chunk = chunk_transcriptions[i-1]
         if i > 1:
@@ -361,52 +361,52 @@ def main():
 
     # Remove FILE_PATH if it exists
     if FILE_PATH.exists():
-        print(f"Removing existing file: {FILE_PATH}")
+        log_info(f"Removing existing file: {FILE_PATH}")
         FILE_PATH.unlink()
 
     # Remove chunks directory if it exists
     chunks_dir = FILE_PATH.parent / f"{FILE_PATH.stem}_chunks"
     if chunks_dir.exists():
-        print(f"Removing existing chunks directory: {chunks_dir}")
+        log_info(f"Removing existing chunks directory: {chunks_dir}")
         for chunk_file in chunks_dir.iterdir():
             chunk_file.unlink()
         chunks_dir.rmdir()
-        print(f"Removed chunks directory: {chunks_dir}")
+        log_info(f"Removed chunks directory: {chunks_dir}")
 
     # Check if YouTube URL is provided and download the video
     if YOUTUBE_URL:
         # Check if file exists and ask before downloading
         if not download_youtube_video(YOUTUBE_URL, FILE_PATH):
-            print("Failed to download YouTube video. Exiting.")
+            log_error("Failed to download YouTube video. Exiting.")
             sys.exit(1)
-        print(f"Successfully downloaded YouTube video to {FILE_PATH}")
+        log_success(f"Successfully downloaded YouTube video to {FILE_PATH}")
 
     # Ensure the file exists before proceeding
     if not FILE_PATH.exists():
-        print(f"Error: File not found at {FILE_PATH}")
+        log_error(f"Error: File not found at {FILE_PATH}")
         sys.exit(1)
 
     # Split the audio into chunks
-    print(f"Splitting audio into {MAX_CHUNK_DURATION}-minute chunks...")
+    log_info(f"Splitting audio into {MAX_CHUNK_DURATION}-minute chunks...")
     audio_chunks = split_audio_file(FILE_PATH)
 
     if not audio_chunks:
-        print("No audio chunks were created. Trying to transcribe the entire file...")
+        log_warning("No audio chunks were created. Trying to transcribe the entire file...")
         # Fall back to transcribing the whole file
         transcription_text = transcribe_file(FILE_PATH, client)
     else:
         # Transcribe each chunk and combine every two chunks with gpt-4o-mini
-        print(f"Transcribing {len(audio_chunks)} audio chunks...")
+        log_info(f"Transcribing {len(audio_chunks)} audio chunks...")
 
         # First transcribe all chunks individually
         chunk_transcriptions: list[str] = []
         for i, chunk_file in enumerate(audio_chunks):
-            print(f"Transcribing chunk {i+1}/{len(audio_chunks)}...")
+            log_info(f"Transcribing chunk {i+1}/{len(audio_chunks)}...")
             chunk_transcription = transcribe_file(chunk_file, client)
             chunk_transcriptions.append(chunk_transcription)
 
         # Combine chunks sequentially (1-2, 2-3, 3-4, etc.)
-        print("Combining chunks sequentially...")
+        log_info("Combining chunks sequentially...")
         transcription_text = combine_chunks_sequentially(chunk_transcriptions, client)
 
     # Save transcription to text file
@@ -417,8 +417,8 @@ def main():
         text_file.write(transcription_text)
 
     # Also print the transcription
-    print(f"Transcription saved to {output_path}")
-    print(transcription_text)
+    log_success(f"Transcription saved to {output_path}")
+    log_info(transcription_text)
 
 if __name__ == "__main__":
     main()
