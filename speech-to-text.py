@@ -47,7 +47,7 @@ def download_youtube_video(url, output_path):
     print("Pytube download failed, trying with yt-dlp...")
     return try_ytdlp_download(url, output_path)
 
-def try_pytube_download(url, output_path):
+def try_pytube_download(url: str, output_path: Path):
     try:
         print(f"Downloading YouTube video from: {url}")
         yt = YouTube(url)
@@ -82,6 +82,12 @@ def try_pytube_download(url, output_path):
             global FILE_PATH
             FILE_PATH = output_path
 
+            if FILE_PATH.exists():
+                # Remove the existing file if it exists
+                print(f"Removing existing file: {FILE_PATH}")
+                FILE_PATH.unlink()
+                print(f"Removed existing file: {FILE_PATH}")
+
         file_path = audio_stream.download(output_path=parent_dir, filename=output_path.name)
         print(f"Download completed: {file_path}")
         return True
@@ -89,7 +95,7 @@ def try_pytube_download(url, output_path):
         print(f"Error downloading YouTube video: {e}")
         return False
 
-def try_ytdlp_download(url, output_path):
+def try_ytdlp_download(url: str, output_path: Path):
     """Try downloading with yt-dlp as a fallback"""
     try:
         # Check if yt-dlp is installed
@@ -107,6 +113,12 @@ def try_ytdlp_download(url, output_path):
         # Update the global FILE_PATH
         global FILE_PATH
         FILE_PATH = output_path
+
+        if FILE_PATH.exists():
+            # Remove the existing file if it exists
+            print(f"Removing existing file: {FILE_PATH}")
+            FILE_PATH.unlink()
+            print(f"Removed existing file: {FILE_PATH}")
 
         # Set up the command to extract audio only and save to the specified path
         cmd = [
@@ -401,51 +413,69 @@ def exclude_last_boundary_words(chunk: str) -> str:
     """ Exclude the last N words from the previous chunk to avoid duplication in the boundary """
     return " ".join(chunk.split(" ")[:-BOUNDARY_WORD_COUNT])
 
-client = OpenAI()
+def main():
+    client = OpenAI()
 
-# Check if YouTube URL is provided and download the video
-if YOUTUBE_URL:
-    # Check if file exists and ask before downloading
-    if not download_youtube_video(YOUTUBE_URL, FILE_PATH):
-        print("Failed to download YouTube video. Exiting.")
+    # Remove FILE_PATH if it exists
+    if FILE_PATH.exists():
+        print(f"Removing existing file: {FILE_PATH}")
+        FILE_PATH.unlink()
+
+    # Remove chunks directory if it exists
+    chunks_dir = FILE_PATH.parent / f"{FILE_PATH.stem}_chunks"
+    if chunks_dir.exists():
+        print(f"Removing existing chunks directory: {chunks_dir}")
+        for chunk_file in chunks_dir.iterdir():
+            chunk_file.unlink()
+        chunks_dir.rmdir()
+        print(f"Removed chunks directory: {chunks_dir}")
+
+    # Check if YouTube URL is provided and download the video
+    if YOUTUBE_URL:
+        # Check if file exists and ask before downloading
+        if not download_youtube_video(YOUTUBE_URL, FILE_PATH):
+            print("Failed to download YouTube video. Exiting.")
+            sys.exit(1)
+        print(f"Successfully downloaded YouTube video to {FILE_PATH}")
+
+    # Ensure the file exists before proceeding
+    if not FILE_PATH.exists():
+        print(f"Error: File not found at {FILE_PATH}")
         sys.exit(1)
-    print(f"Successfully downloaded YouTube video to {FILE_PATH}")
 
-# Ensure the file exists before proceeding
-if not FILE_PATH.exists():
-    print(f"Error: File not found at {FILE_PATH}")
-    sys.exit(1)
+    # Split the audio into chunks
+    print(f"Splitting audio into {MAX_CHUNK_DURATION}-minute chunks...")
+    audio_chunks = split_audio_file(FILE_PATH)
 
-# Split the audio into chunks
-print(f"Splitting audio into {MAX_CHUNK_DURATION}-minute chunks...")
-audio_chunks = split_audio_file(FILE_PATH)
+    if not audio_chunks:
+        print("No audio chunks were created. Trying to transcribe the entire file...")
+        # Fall back to transcribing the whole file
+        transcription_text = transcribe_file(FILE_PATH, client)
+    else:
+        # Transcribe each chunk and combine every two chunks with gpt-4o-mini
+        print(f"Transcribing {len(audio_chunks)} audio chunks...")
 
-if not audio_chunks:
-    print("No audio chunks were created. Trying to transcribe the entire file...")
-    # Fall back to transcribing the whole file
-    transcription_text = transcribe_file(FILE_PATH, client)
-else:
-    # Transcribe each chunk and combine every two chunks with gpt-4o-mini
-    print(f"Transcribing {len(audio_chunks)} audio chunks...")
+        # First transcribe all chunks individually
+        chunk_transcriptions: list[str] = []
+        for i, chunk_file in enumerate(audio_chunks):
+            print(f"Transcribing chunk {i+1}/{len(audio_chunks)}...")
+            chunk_transcription = transcribe_file(chunk_file, client)
+            chunk_transcriptions.append(chunk_transcription)
 
-    # First transcribe all chunks individually
-    chunk_transcriptions: list[str] = []
-    for i, chunk_file in enumerate(audio_chunks):
-        print(f"Transcribing chunk {i+1}/{len(audio_chunks)}...")
-        chunk_transcription = transcribe_file(chunk_file, client)
-        chunk_transcriptions.append(chunk_transcription)
+        # Combine chunks sequentially (1-2, 2-3, 3-4, etc.)
+        print("Combining chunks sequentially...")
+        transcription_text = combine_chunks_sequentially(chunk_transcriptions, client)
 
-    # Combine chunks sequentially (1-2, 2-3, 3-4, etc.)
-    print("Combining chunks sequentially...")
-    transcription_text = combine_chunks_sequentially(chunk_transcriptions, client)
+    # Save transcription to text file
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_filename = OUTPUT_FORMAT.format(timestamp=timestamp)
+    output_path = ROOT_DIR / output_filename
+    with open(output_path, "w") as text_file:
+        text_file.write(transcription_text)
 
-# Save transcription to text file
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-output_filename = OUTPUT_FORMAT.format(timestamp=timestamp)
-output_path = ROOT_DIR / output_filename
-with open(output_path, "w") as text_file:
-    text_file.write(transcription_text)
+    # Also print the transcription
+    print(f"Transcription saved to {output_path}")
+    print(transcription_text)
 
-# Also print the transcription
-print(f"Transcription saved to {output_path}")
-print(transcription_text)
+if __name__ == "__main__":
+    main()
