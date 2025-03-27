@@ -26,6 +26,8 @@ RECORDING_FILENAME = os.environ.get("RECORDING_FILENAME", "record.mp4")
 # Get output format from env var or use default
 OUTPUT_FORMAT = os.environ.get("OUTPUT_FORMAT", "transcription_{timestamp}.txt")
 FILE_PATH = ROOT_DIR / RECORDING_FILENAME
+# Number of words to use when processing chunk boundaries
+BOUNDARY_WORD_COUNT = 25
 MAX_CHUNK_DURATION = 7  # Maximum duration of each audio chunk in minutes
 
 # Function to check if file exists and ask for confirmation
@@ -215,9 +217,31 @@ def transcribe_file(file_path: Path, client: OpenAI):
         )
     return transcription.text
 
-def combine_transcriptions(text1: str, text2: str, client: OpenAI):
-    """Combine two transcriptions using gpt-4o-mini to handle the overlap"""
-    print("Combining transcriptions with gpt-4o-mini...")
+def get_boundary_text(text: str, is_start: bool, word_count: int = BOUNDARY_WORD_COUNT) -> str:
+    """
+    Extract the first or last N words from a text.
+
+    Args:
+        text: The text to extract from
+        is_start: If True, get the first N words; if False, get the last N words
+        word_count: Number of words to extract
+
+    Returns:
+        The extracted boundary text
+    """
+    words = text.split(" ")
+
+    if not words:
+        return ""
+
+    if is_start:
+        # Get first N words
+        boundary_words = words[:min(word_count, len(words))]
+    else:
+        # Get last N words
+        boundary_words = words[-min(word_count, len(words)):]
+
+    return " ".join(boundary_words)
 
     # Create prompt with clear instructions for combining overlapping transcriptions
     prompt = f"""
