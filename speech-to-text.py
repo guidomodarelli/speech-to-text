@@ -140,8 +140,8 @@ def get_audio_duration(file_path):
         print(f"Error getting audio duration: {e}")
         return 0
 
-def split_audio_file(file_path, chunk_duration_minutes=7):
-    """Split audio file into chunks of specified duration"""
+def split_audio_file(file_path, chunk_duration_minutes=7, overlap_seconds=1):
+    """Split audio file into chunks of specified duration with overlap to avoid cutting words"""
     try:
         # Check if ffmpeg is installed
         try:
@@ -165,16 +165,28 @@ def split_audio_file(file_path, chunk_duration_minutes=7):
             return []
 
         chunk_files = []
-        # Generate chunks
+        # Generate chunks with overlap
         for i, start_time in enumerate(range(0, int(total_duration), chunk_duration_seconds)):
+            # Adjust start time to include overlap from previous chunk (except for first chunk)
+            adjusted_start = max(0, start_time - overlap_seconds) if i > 0 else 0
+
+            # Adjust duration to include overlap with next chunk
+            # For the last chunk, make sure we don't exceed the total duration
+            if start_time + chunk_duration_seconds >= total_duration:
+                # Last chunk - go until the end of the file
+                duration = total_duration - adjusted_start
+            else:
+                # Add overlap to duration
+                duration = (start_time + chunk_duration_seconds + overlap_seconds) - adjusted_start
+
             output_file = chunks_dir / f"chunk_{i:03d}{file_path.suffix}"
 
             # Use ffmpeg to extract the chunk
             cmd = [
                 'ffmpeg',
                 '-i', str(file_path),
-                '-ss', str(start_time),
-                '-t', str(chunk_duration_seconds),
+                '-ss', str(adjusted_start),
+                '-t', str(duration),
                 '-c', 'copy',
                 '-y',  # Overwrite output files without asking
                 str(output_file)
@@ -183,22 +195,53 @@ def split_audio_file(file_path, chunk_duration_minutes=7):
             subprocess.run(cmd, check=True)
             chunk_files.append(output_file)
 
-        print(f"Split audio into {len(chunk_files)} chunks in {chunks_dir}")
+        print(f"Split audio into {len(chunk_files)} chunks with 1-second overlap in {chunks_dir}")
         return chunk_files
 
     except Exception as e:
         print(f"Error splitting audio file: {e}")
         return []
 
-def transcribe_file(file_path, client):
+def transcribe_file(file_path: Path, client: OpenAI):
     """Transcribe a single file using OpenAI API"""
     print(f"Transcribing {file_path}...")
     with open(file_path, "rb") as audio_file:
         transcription = client.audio.transcriptions.create(
-            model="gpt-4o-transcribe",
+            model="gpt-4o-mini-transcribe",
             file=audio_file
         )
     return transcription.text
+
+def combine_transcriptions(text1: str, text2: str, client: OpenAI):
+    """Combine two transcriptions using gpt-4o-mini to handle the overlap"""
+    print("Combining transcriptions with gpt-4o-mini...")
+
+    # Create prompt with clear instructions for combining overlapping transcriptions
+    prompt = f"""
+    You're combining two audio transcriptions that have a 1-second overlap.
+
+    Rules:
+    1. IDENTIFY and REMOVE the duplicated content from the overlap
+    2. DO NOT add any new content or interpretation
+    3. Modify spelling, grammar, and punctuation
+    4. COMBINE as: [first transcription] + [second transcription without duplicated overlap]
+
+    First transcription:
+    {text1}
+
+    Second transcription:
+    {text2}
+    """
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are an assistant that combines overlapping audio transcriptions. You must keep the exact original text without modifications, only removing duplicated content in overlaps."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    return response.choices[0].message.content
 
 client = OpenAI()
 
@@ -227,14 +270,34 @@ if not audio_chunks:
     # Fall back to transcribing the whole file
     transcription_text = transcribe_file(FILE_PATH, client)
 else:
-    # Transcribe each chunk and concatenate the results
+    # Transcribe each chunk and combine every two chunks with gpt-4o-mini
     print(f"Transcribing {len(audio_chunks)} audio chunks...")
-    transcription_text = ""
 
+    # First transcribe all chunks individually
+    chunk_transcriptions: list[str] = []
     for i, chunk_file in enumerate(audio_chunks):
-        print(f"Processing chunk {i+1}/{len(audio_chunks)}...")
+        print(f"Transcribing chunk {i+1}/{len(audio_chunks)}...")
         chunk_transcription = transcribe_file(chunk_file, client)
-        transcription_text += chunk_transcription + "\n\n"
+        chunk_transcriptions.append(chunk_transcription)
+
+    # Then combine every two chunks using gpt-4o-mini
+    combined_transcriptions: list[str] = []
+    for i in range(0, len(chunk_transcriptions), 2):
+        if i + 1 < len(chunk_transcriptions):
+            # Combine two consecutive chunks
+            print(f"Combining chunks {i+1} and {i+2} with gpt-4o-mini...")
+            combined_text = combine_transcriptions(
+                chunk_transcriptions[i],
+                chunk_transcriptions[i+1],
+                client
+            )
+            combined_transcriptions.append(combined_text)
+        else:
+            # Add the last chunk directly if there's an odd number of chunks
+            combined_transcriptions.append(chunk_transcriptions[i])
+
+    # Join all combined transcriptions with new lines
+    transcription_text = "\n\n".join(combined_transcriptions)
 
 # Save transcription to text file
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
