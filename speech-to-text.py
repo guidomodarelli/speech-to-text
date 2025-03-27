@@ -159,7 +159,7 @@ def split_audio_file(file_path: Path, chunk_duration_minutes=MAX_CHUNK_DURATION)
         chunks_dir.mkdir(exist_ok=True)
 
         # Convert minutes to seconds
-        chunk_duration_seconds = chunk_duration_minutes * 60
+        chunk_duration_seconds = int(chunk_duration_minutes * 60)
 
         # Get the total duration
         total_duration = get_audio_duration(file_path)
