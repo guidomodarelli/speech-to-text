@@ -364,9 +364,9 @@ def combine_chunks_sequentially(chunk_transcriptions: list[str], client: OpenAI)
     # Join all processed chunks with spaces
     return " ".join(processed_chunks)
 
-def exclude_last_boundary_words(prev_chunk):
+def exclude_last_boundary_words(chunk: str) -> str:
     """ Exclude the last N words from the previous chunk to avoid duplication in the boundary """
-    return " ".join(prev_chunk.split(" ")[:-BOUNDARY_WORD_COUNT])
+    return " ".join(chunk.split(" ")[:-BOUNDARY_WORD_COUNT])
 
 client = OpenAI()
 
