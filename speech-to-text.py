@@ -8,13 +8,6 @@ import os
 import sys
 import subprocess
 
-# Import pytube for YouTube downloads
-try:
-    from pytube import YouTube
-except ImportError:
-    print("pytube package is not installed. Install it using 'pip install pytube'")
-    sys.exit(1)
-
 # Load environment variables from .env file
 load_dotenv(override=True)
 
@@ -39,64 +32,10 @@ if MAX_PROCESSING_DURATION is not None:
         MAX_PROCESSING_DURATION = None
 
 # Function to download YouTube video if URL is provided
-def download_youtube_video(url, output_path):
-    # First try with pytube
-    if try_pytube_download(url, output_path):
-        return True
+def download_youtube_video(url: str, output_path: Path):
+    return ytdlp_download(url, output_path)
 
-    print("Pytube download failed, trying with yt-dlp...")
-    return try_ytdlp_download(url, output_path)
-
-def try_pytube_download(url: str, output_path: Path):
-    try:
-        print(f"Downloading YouTube video from: {url}")
-        yt = YouTube(url)
-
-        # Get the audio stream with highest quality
-        print("Downloading audio-only stream")
-        audio_stream = yt.streams.filter(only_audio=True).first()
-
-        # Choose file extension based on stream type
-        is_audio_only = False
-
-        if not audio_stream:
-            # If no audio-only stream is available, get the lowest resolution video
-            print("No audio-only stream found. Downloading lowest resolution video")
-            audio_stream = yt.streams.filter(progressive=True).order_by('resolution').first()
-        else:
-            is_audio_only = True
-
-        if not audio_stream:
-            print("No suitable streams found")
-            return False
-
-        # Download the file
-        print(f"Downloading: {audio_stream}")
-
-        # If audio-only, modify the output path to use .mp3 extension
-        if is_audio_only:
-            # Get the directory and modify the filename to use .mp3
-            parent_dir = output_path.parent
-            new_filename = output_path.stem + ".mp3"
-            output_path = parent_dir / new_filename
-            global FILE_PATH
-            FILE_PATH = output_path
-
-            if FILE_PATH.exists():
-                # Remove the existing file if it exists
-                print(f"Removing existing file: {FILE_PATH}")
-                FILE_PATH.unlink()
-                print(f"Removed existing file: {FILE_PATH}")
-
-        file_path = audio_stream.download(output_path=parent_dir, filename=output_path.name)
-        print(f"Download completed: {file_path}")
-        return True
-    except Exception as e:
-        print(f"Error downloading YouTube video: {e}")
-        return False
-
-def try_ytdlp_download(url: str, output_path: Path):
-    """Try downloading with yt-dlp as a fallback"""
+def ytdlp_download(url: str, output_path: Path):
     try:
         # Check if yt-dlp is installed
         try:
