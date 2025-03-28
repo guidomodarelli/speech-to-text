@@ -16,10 +16,18 @@ YOUTUBE_URL = os.environ.get("YOUTUBE_URL")
 
 ROOT_DIR = Path(__file__).parent.resolve()
 # Get recording filename from env var or use default
-RECORDING_FILENAME = os.environ.get("RECORDING_FILENAME", "record.mp4")
+RECORDING_FILENAME = os.environ.get("RECORDING_FILENAME", "record.mp3")
 # Get output format from env var or use default
 OUTPUT_FORMAT = os.environ.get("OUTPUT_FORMAT", "transcription_{timestamp}.txt")
-FILE_PATH = ROOT_DIR / RECORDING_FILENAME
+
+# Get the output file path from env var or use default
+# If the file path is not set, use the default recording filename
+if os.environ.get("FILE_PATH"):
+    FILE_PATH = Path(os.environ.get("FILE_PATH"))
+else:
+    # Use the default recording filename
+    FILE_PATH = ROOT_DIR / "outputs" / "output.mp3"
+
 # Number of words to use when processing chunk boundaries
 BOUNDARY_WORD_COUNT = 50
 MAX_CHUNK_DURATION = 7  # Maximum duration of each audio chunk in minutes

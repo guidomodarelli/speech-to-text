@@ -33,3 +33,6 @@ __pycache__/
 
 # Generated transcription files
 transcription_*
+
+# Output files
+outputs/
