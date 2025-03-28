@@ -314,6 +314,16 @@ def exclude_last_boundary_words(chunk: str) -> str:
     """ Exclude the last N words from the previous chunk to avoid duplication in the boundary """
     return " ".join(chunk.split(" ")[:-BOUNDARY_WORD_COUNT])
 
+def clean_chunks_directory(file_path: Path):
+    """Remove chunks directory and its contents if it exists"""
+    chunks_dir = file_path.parent / f"{file_path.stem}_chunks"
+    if chunks_dir.exists():
+        log_info(f"Removing existing chunks directory: {chunks_dir}")
+        for chunk_file in chunks_dir.iterdir():
+            chunk_file.unlink()
+        chunks_dir.rmdir()
+        log_info(f"Removed chunks directory: {chunks_dir}")
+
 def main():
     client = OpenAI()
 
@@ -323,14 +333,8 @@ def main():
         FILE_PATH.unlink()
         log_info(f"Removed existing file: {FILE_PATH}")
 
-    # Remove chunks directory if it exists
-    chunks_dir = FILE_PATH.parent / f"{FILE_PATH.stem}_chunks"
-    if chunks_dir.exists():
-        log_info(f"Removing existing chunks directory: {chunks_dir}")
-        for chunk_file in chunks_dir.iterdir():
-            chunk_file.unlink()
-        chunks_dir.rmdir()
-        log_info(f"Removed chunks directory: {chunks_dir}")
+    # Call the function to clean up chunks directory
+    clean_chunks_directory(FILE_PATH)
 
     # Check if YouTube URL is provided and download the video
     if YOUTUBE_URL:
