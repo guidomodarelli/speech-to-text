@@ -7,7 +7,8 @@ from datetime import datetime
 import os
 import sys
 import subprocess
-from lib.logger import log_error, log_cyan, log_bold, log_success, log_info, log_warning
+from lib.logger import log_error, log_success, log_info, log_warning
+from lib.youtube import YouTube, YtdlpYouTube
 
 # Load environment variables from .env file
 load_dotenv(override=True)
@@ -39,57 +40,6 @@ if MAX_PROCESSING_DURATION is not None:
     except ValueError:
         log_error(f"Invalid MAX_PROCESSING_DURATION: {MAX_PROCESSING_DURATION}. Using entire file.")
         MAX_PROCESSING_DURATION = None
-
-# Function to download YouTube video if URL is provided
-def download_youtube_video(url: str, output_path: Path):
-    return ytdlp_download(url, output_path)
-
-def ytdlp_download(url: str, output_path: Path):
-    try:
-        # Check if yt-dlp is installed
-        try:
-            subprocess.run(['yt-dlp', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-        except (subprocess.SubprocessError, FileNotFoundError):
-            log_error(f"{log_bold(log_cyan('yt-dlp'))} not found. Please install it with: {log_cyan('pip install yt-dlp')}")
-            return False
-
-        # Modify output path to use .mp3 for audio downloads
-        parent_dir = output_path.parent
-        new_filename = output_path.stem + ".mp3"
-        output_path = parent_dir / new_filename
-
-        # Update the global FILE_PATH
-        global FILE_PATH
-        FILE_PATH = output_path
-
-        if FILE_PATH.exists():
-            # Remove the existing file if it exists
-            log_info(f"Removing existing file: {FILE_PATH}")
-            FILE_PATH.unlink()
-            log_info(f"Removed existing file: {FILE_PATH}")
-
-        # Set up the command to extract audio only and save to the specified path
-        cmd = [
-            'yt-dlp',
-            '-f', 'bestaudio',  # Get best audio quality
-            '-x',               # Extract audio
-            '--audio-format', 'mp3',  # Convert to mp3
-            '-o', str(output_path),
-            url
-        ]
-
-        log_info(f"Running: {' '.join(cmd)}")
-        result = subprocess.run(cmd, check=True)
-
-        if result.returncode == 0:
-            log_success("Successfully downloaded audio using yt-dlp")
-            return True
-        else:
-            log_error(f"yt-dlp exited with code {result.returncode}")
-            return False
-    except Exception as e:
-        log_error(f"Error using yt-dlp: {e}")
-        return False
 
 def get_audio_duration(file_path):
     """Get the duration of an audio file in seconds using ffmpeg"""
@@ -371,6 +321,7 @@ def main():
     if FILE_PATH.exists():
         log_info(f"Removing existing file: {FILE_PATH}")
         FILE_PATH.unlink()
+        log_info(f"Removed existing file: {FILE_PATH}")
 
     # Remove chunks directory if it exists
     chunks_dir = FILE_PATH.parent / f"{FILE_PATH.stem}_chunks"
@@ -383,8 +334,9 @@ def main():
 
     # Check if YouTube URL is provided and download the video
     if YOUTUBE_URL:
+        youtube: YouTube = YtdlpYouTube()
         # Check if file exists and ask before downloading
-        if not download_youtube_video(YOUTUBE_URL, FILE_PATH):
+        if not youtube.download_audio(YOUTUBE_URL, FILE_PATH):
             log_error("Failed to download YouTube video. Exiting.")
             sys.exit(1)
         log_success(f"Successfully downloaded YouTube video to {FILE_PATH}")
