@@ -1,6 +1,15 @@
 # Python virtual environment
 venv/
 __pycache__/
+lib64
+pyvenv.cfg
+bin/
+site-packages/
+*-completion/
+**/share/doc/
+**/share/**/vendor_completions.d/
+**/share/zsh/
+**/share/man/
 
 # Environment variables
 .env
@@ -33,6 +42,7 @@ __pycache__/
 
 # Generated transcription files
 transcription_*
+transcriptions/
 
 # Output files
 outputs/

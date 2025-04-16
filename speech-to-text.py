@@ -9,6 +9,7 @@ import sys
 import subprocess
 from lib.logger import log_error, log_success, log_info, log_warning
 from lib.youtube import YouTube, YtdlpYouTube
+import shutil
 
 # Load environment variables from .env file
 load_dotenv(override=True)
@@ -17,9 +18,13 @@ YOUTUBE_URL = os.environ.get("YOUTUBE_URL")
 
 ROOT_DIR = Path(__file__).parent.resolve()
 # Get recording filename from env var or use default
-RECORDING_FILENAME = os.environ.get("RECORDING_FILENAME", "record.mp3")
+RECORDING_FILENAME = os.environ.get("RECORDING_FILENAME", "record.mp4")
 # Get output format from env var or use default
 OUTPUT_FORMAT = os.environ.get("OUTPUT_FORMAT", "transcription_{timestamp}.txt")
+
+# Define directories for transcriptions
+TRANSCRIPTIONS_DIR = ROOT_DIR / "transcriptions"
+TRANSCRIPTIONS_CHUNKS_DIR = TRANSCRIPTIONS_DIR / "transcriptions_chunks"
 
 # Get the output file path from env var or use default
 # If the file path is not set, use the default recording filename
@@ -327,6 +332,10 @@ def clean_chunks_directory(file_path: Path):
 def main():
     client = OpenAI()
 
+    # Ensure transcription directories exist
+    TRANSCRIPTIONS_DIR.mkdir(parents=True, exist_ok=True)
+    TRANSCRIPTIONS_CHUNKS_DIR.mkdir(parents=True, exist_ok=True)
+
     # Remove FILE_PATH if it exists
     if FILE_PATH.exists():
         log_info(f"Removing existing file: {FILE_PATH}")
@@ -344,6 +353,60 @@ def main():
             log_error("Failed to download YouTube video. Exiting.")
             sys.exit(1)
         log_success(f"Successfully downloaded YouTube video to {FILE_PATH}")
+    else:
+        log_info("No YouTube URL provided. Using the specified file path.")
+        # Check if RECORDING_FILENAME exists and convert it to mp3 if needed
+        recording_path = ROOT_DIR / RECORDING_FILENAME
+        if not YOUTUBE_URL and recording_path.exists():
+            log_info(f"Found recording file: {recording_path}")
+            if recording_path.suffix.lower() != ".mp3":
+                log_info(f"Converting {recording_path} to MP3 format at {FILE_PATH}...")
+                try:
+                    # Check if ffmpeg is installed
+                    try:
+                        subprocess.run(['ffmpeg', '-version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+                    except (subprocess.SubprocessError, FileNotFoundError):
+                        log_error("ffmpeg not found. Please install ffmpeg to convert audio files.")
+                        sys.exit(1)
+
+                    # Ensure output directory exists
+                    FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+                    # Construct ffmpeg command for conversion
+                    cmd = [
+                    'ffmpeg',
+                    '-i', str(recording_path),
+                    '-vn',  # No video
+                    '-acodec', 'libmp3lame', # Use MP3 codec
+                    '-ab', '192k', # Audio bitrate
+                    '-ar', '44100', # Audio sample rate
+                    '-y',  # Overwrite output file without asking
+                    str(FILE_PATH)
+                    ]
+                    subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    log_success(f"Successfully converted {recording_path} to {FILE_PATH}")
+                except subprocess.CalledProcessError as e:
+                    log_error(f"Error converting file with ffmpeg: {e}")
+                    log_error(f"ffmpeg stderr: {e.stderr.decode()}")
+                    sys.exit(1)
+                except Exception as e:
+                    log_error(f"An unexpected error occurred during conversion: {e}")
+                    sys.exit(1)
+            elif recording_path != FILE_PATH:
+                # If it's already MP3 but not at the target location, copy it
+                log_info(f"Copying {recording_path} to {FILE_PATH}...")
+                try:
+                    # Ensure output directory exists
+                    FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(recording_path, FILE_PATH)
+                    log_success(f"Successfully copied {recording_path} to {FILE_PATH}")
+                except Exception as e:
+                    log_error(f"Error copying file: {e}")
+                    sys.exit(1)
+                else:
+                    log_info(f"Recording file {recording_path} is already the target MP3 file.")
+        elif not YOUTUBE_URL:
+            log_warning(f"Recording file {recording_path} not found and no YouTube URL provided.")
 
     # Ensure the file exists before proceeding
     if not FILE_PATH.exists():
@@ -369,6 +432,16 @@ def main():
             chunk_transcription = transcribe_file(chunk_file, client)
             chunk_transcriptions.append(chunk_transcription)
 
+            # Save individual chunk transcription
+            chunk_transcription_filename = f"chunk_{i:03d}_transcription.txt"
+            chunk_transcription_path = TRANSCRIPTIONS_CHUNKS_DIR / chunk_transcription_filename
+            try:
+                with open(chunk_transcription_path, "w") as chunk_text_file:
+                    chunk_text_file.write(chunk_transcription)
+                log_info(f"Saved chunk transcription to {chunk_transcription_path}")
+            except Exception as e:
+                log_error(f"Error saving chunk transcription {chunk_transcription_path}: {e}")
+
         # Combine chunks sequentially (1-2, 2-3, 3-4, etc.)
         log_info("Combining chunks sequentially...")
         transcription_text = combine_chunks_sequentially(chunk_transcriptions, client)
@@ -376,7 +449,7 @@ def main():
     # Save transcription to text file
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_filename = OUTPUT_FORMAT.format(timestamp=timestamp)
-    output_path = ROOT_DIR / output_filename
+    output_path = TRANSCRIPTIONS_DIR / output_filename # Save final transcription in TRANSCRIPTIONS_DIR
     with open(output_path, "w") as text_file:
         text_file.write(transcription_text)
 
