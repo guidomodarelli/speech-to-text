@@ -7,14 +7,13 @@ from datetime import datetime
 import os
 import sys
 import subprocess
+import argparse  # Add argparse import
 from lib.logger import log_error, log_success, log_info, log_warning
 from lib.youtube import YouTube, YtdlpYouTube
 import shutil
 
 # Load environment variables from .env file
 load_dotenv(override=True)
-
-YOUTUBE_URL = os.environ.get("YOUTUBE_URL")
 
 ROOT_DIR = Path(__file__).parent.resolve()
 # Get recording filename from env var or use default
@@ -25,14 +24,6 @@ OUTPUT_FORMAT = os.environ.get("OUTPUT_FORMAT", "transcription_{timestamp}.txt")
 # Define directories for transcriptions
 TRANSCRIPTIONS_DIR = ROOT_DIR / "transcriptions"
 TRANSCRIPTIONS_CHUNKS_DIR = TRANSCRIPTIONS_DIR / "transcriptions_chunks"
-
-# Get the output file path from env var or use default
-# If the file path is not set, use the default recording filename
-if os.environ.get("FILE_PATH"):
-    FILE_PATH = Path(os.environ.get("FILE_PATH"))
-else:
-    # Use the default recording filename
-    FILE_PATH = ROOT_DIR / "outputs" / "output.mp3"
 
 # Number of words to use when processing chunk boundaries
 BOUNDARY_WORD_COUNT = 50
@@ -330,97 +321,115 @@ def clean_chunks_directory(file_path: Path):
         log_info(f"Removed chunks directory: {chunks_dir}")
 
 def main():
+    # --- Argument Parsing ---
+    parser = argparse.ArgumentParser(description="Transcribe audio from a YouTube video or a local file.")
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument("--youtube-url", type=str, help="URL of the YouTube video to transcribe.")
+    input_group.add_argument("--file-path", type=str, help="Path to the local audio/video file to transcribe.")
+
+    parser.add_argument("--output-dir", type=str, default=str(ROOT_DIR / "outputs"), help="Directory to save the processed audio file.")
+    parser.add_argument("--output-filename", type=str, default="output.mp3", help="Filename for the processed audio file.")
+
+    args = parser.parse_args()
+    # --- End Argument Parsing ---
+
     client = OpenAI()
 
     # Ensure transcription directories exist
     TRANSCRIPTIONS_DIR.mkdir(parents=True, exist_ok=True)
     TRANSCRIPTIONS_CHUNKS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Remove FILE_PATH if it exists
-    if FILE_PATH.exists():
-        log_info(f"Removing existing file: {FILE_PATH}")
-        FILE_PATH.unlink()
-        log_info(f"Removed existing file: {FILE_PATH}")
+    # Determine output path
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    file_path = output_dir / args.output_filename # Use file_path variable locally in main
 
-    # Call the function to clean up chunks directory
-    clean_chunks_directory(FILE_PATH)
+    # Remove existing output file if it exists
+    if file_path.exists():
+        log_info(f"Removing existing file: {file_path}")
+        file_path.unlink()
+        log_info(f"Removed existing file: {file_path}")
+
+    # Call the function to clean up chunks directory associated with the target output file
+    clean_chunks_directory(file_path)
 
     # Check if YouTube URL is provided and download the video
-    if YOUTUBE_URL:
+    if args.youtube_url:
+        log_info(f"Processing YouTube URL: {args.youtube_url}")
         youtube: YouTube = YtdlpYouTube()
-        # Check if file exists and ask before downloading
-        if not youtube.download_audio(YOUTUBE_URL, FILE_PATH):
+        # Check if file exists and ask before downloading (download_audio handles this)
+        if not youtube.download_audio(args.youtube_url, file_path):
             log_error("Failed to download YouTube video. Exiting.")
             sys.exit(1)
-        log_success(f"Successfully downloaded YouTube video to {FILE_PATH}")
-    else:
-        log_info("No YouTube URL provided. Using the specified file path.")
-        # Check if RECORDING_FILENAME exists and convert it to mp3 if needed
-        recording_path = ROOT_DIR / RECORDING_FILENAME
-        if not YOUTUBE_URL and recording_path.exists():
-            log_info(f"Found recording file: {recording_path}")
-            if recording_path.suffix.lower() != ".mp3":
-                log_info(f"Converting {recording_path} to MP3 format at {FILE_PATH}...")
+        log_success(f"Successfully downloaded YouTube video to {file_path}")
+    elif args.file_path:
+        log_info(f"Processing local file: {args.file_path}")
+        input_file = Path(args.file_path)
+        if not input_file.exists():
+            log_error(f"Input file not found: {input_file}")
+            sys.exit(1)
+
+        # Check if input file needs conversion
+        if input_file.suffix.lower() != ".mp3":
+            log_info(f"Converting {input_file} to MP3 format at {file_path}...")
+            try:
+                # Check if ffmpeg is installed
                 try:
-                    # Check if ffmpeg is installed
-                    try:
-                        subprocess.run(['ffmpeg', '-version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-                    except (subprocess.SubprocessError, FileNotFoundError):
-                        log_error("ffmpeg not found. Please install ffmpeg to convert audio files.")
-                        sys.exit(1)
+                    subprocess.run(['ffmpeg', '-version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+                except (subprocess.SubprocessError, FileNotFoundError):
+                    log_error("ffmpeg not found. Please install ffmpeg to convert audio files.")
+                    sys.exit(1)
 
-                    # Ensure output directory exists
-                    FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-                    # Construct ffmpeg command for conversion
-                    cmd = [
+                # Construct ffmpeg command for conversion
+                cmd = [
                     'ffmpeg',
-                    '-i', str(recording_path),
+                    '-i', str(input_file),
                     '-vn',  # No video
                     '-acodec', 'libmp3lame', # Use MP3 codec
                     '-ab', '192k', # Audio bitrate
                     '-ar', '44100', # Audio sample rate
                     '-y',  # Overwrite output file without asking
-                    str(FILE_PATH)
-                    ]
-                    subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    log_success(f"Successfully converted {recording_path} to {FILE_PATH}")
-                except subprocess.CalledProcessError as e:
-                    log_error(f"Error converting file with ffmpeg: {e}")
-                    log_error(f"ffmpeg stderr: {e.stderr.decode()}")
-                    sys.exit(1)
-                except Exception as e:
-                    log_error(f"An unexpected error occurred during conversion: {e}")
-                    sys.exit(1)
-            elif recording_path != FILE_PATH:
-                # If it's already MP3 but not at the target location, copy it
-                log_info(f"Copying {recording_path} to {FILE_PATH}...")
-                try:
-                    # Ensure output directory exists
-                    FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copyfile(recording_path, FILE_PATH)
-                    log_success(f"Successfully copied {recording_path} to {FILE_PATH}")
-                except Exception as e:
-                    log_error(f"Error copying file: {e}")
-                    sys.exit(1)
-                else:
-                    log_info(f"Recording file {recording_path} is already the target MP3 file.")
-        elif not YOUTUBE_URL:
-            log_warning(f"Recording file {recording_path} not found and no YouTube URL provided.")
+                    str(file_path)
+                ]
+                subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                log_success(f"Successfully converted {input_file} to {file_path}")
+            except subprocess.CalledProcessError as e:
+                log_error(f"Error converting file with ffmpeg: {e}")
+                log_error(f"ffmpeg stderr: {e.stderr.decode()}")
+                sys.exit(1)
+            except Exception as e:
+                log_error(f"An unexpected error occurred during conversion: {e}")
+                sys.exit(1)
+        elif input_file != file_path:
+            # If it's already MP3 but not at the target location, copy it
+            log_info(f"Copying {input_file} to {file_path}...")
+            try:
+                shutil.copyfile(input_file, file_path)
+                log_success(f"Successfully copied {input_file} to {file_path}")
+            except Exception as e:
+                log_error(f"Error copying file: {e}")
+                sys.exit(1)
+        else:
+            log_info(f"Input file {input_file} is already the target MP3 file.")
+    else:
+        # This case should not happen due to mutually exclusive group in argparse
+        log_error("No input source specified (YouTube URL or file path).")
+        sys.exit(1)
+
 
     # Ensure the file exists before proceeding
-    if not FILE_PATH.exists():
-        log_error(f"Error: File not found at {FILE_PATH}")
+    if not file_path.exists():
+        log_error(f"Error: Processed file not found at {file_path}")
         sys.exit(1)
 
     # Split the audio into chunks
     log_info(f"Splitting audio into {MAX_CHUNK_DURATION}-minute chunks...")
-    audio_chunks = split_audio_file(FILE_PATH)
+    audio_chunks = split_audio_file(file_path) # Use local file_path variable
 
     if not audio_chunks:
         log_warning("No audio chunks were created. Trying to transcribe the entire file...")
         # Fall back to transcribing the whole file
-        transcription_text = transcribe_file(FILE_PATH, client)
+        transcription_text = transcribe_file(file_path, client) # Use local file_path variable
     else:
         # Transcribe each chunk and combine every two chunks with gpt-4o-mini
         log_info(f"Transcribing {len(audio_chunks)} audio chunks...")
