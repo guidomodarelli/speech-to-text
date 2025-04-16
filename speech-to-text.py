@@ -16,8 +16,6 @@ import shutil
 load_dotenv(override=True)
 
 ROOT_DIR = Path(__file__).parent.resolve()
-# Get recording filename from env var or use default
-RECORDING_FILENAME = os.environ.get("RECORDING_FILENAME", "record.mp4")
 # Get output format from env var or use default
 OUTPUT_FORMAT = "transcription_{timestamp}.txt"
 
@@ -324,11 +322,11 @@ def main():
     # --- Argument Parsing ---
     parser = argparse.ArgumentParser(description="Transcribe audio from a YouTube video or a local file.")
     input_group = parser.add_mutually_exclusive_group(required=True)
-    input_group.add_argument("--youtube-url", type=str, help="URL of the YouTube video to transcribe.")
-    input_group.add_argument("--file-path", type=str, help="Path to the local audio/video file to transcribe.")
+    input_group.add_argument("-u", "--youtube-url", type=str, help="URL of the YouTube video to transcribe.")
+    input_group.add_argument("-f", "--file-path", type=str, help="Path to the local audio/video file to transcribe.")
 
-    parser.add_argument("--output-dir", type=str, default=str(ROOT_DIR / "outputs"), help="Directory to save the processed audio file.")
-    parser.add_argument("--output-filename", type=str, default="output.mp3", help="Filename for the processed audio file.")
+    parser.add_argument("-d", "--output-dir", type=str, default=str(ROOT_DIR / "outputs"), help="Directory to save the processed audio file.")
+    parser.add_argument("-o", "--output-filename", type=str, default="output.mp3", help="Filename for the processed audio file (e.g., output.mp3).")
 
     args = parser.parse_args()
     # --- End Argument Parsing ---
