@@ -19,7 +19,7 @@ ROOT_DIR = Path(__file__).parent.resolve()
 # Get recording filename from env var or use default
 RECORDING_FILENAME = os.environ.get("RECORDING_FILENAME", "record.mp4")
 # Get output format from env var or use default
-OUTPUT_FORMAT = os.environ.get("OUTPUT_FORMAT", "transcription_{timestamp}.txt")
+OUTPUT_FORMAT = "transcription_{timestamp}.txt"
 
 # Define directories for transcriptions
 TRANSCRIPTIONS_DIR = ROOT_DIR / "transcriptions"
