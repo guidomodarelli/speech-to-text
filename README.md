@@ -35,7 +35,7 @@ using OpenAI's transcription API.
    "record.mp4")
 2. Run the script:
    ```
-   python speech-to-text.py
+   python run.py
    ```
 3. The transcription will be saved as a text file with a timestamp in the
    filename
