@@ -1,5 +1,45 @@
 #!/usr/bin/env python3
 
+"""
+Processes audio from a YouTube video or a local file to generate a text transcription.
+
+This script performs the following steps:
+1.  Parses command-line arguments to get the input source (YouTube URL or local file path)
+    and output directory/filename options.
+2.  If a YouTube URL is provided:
+    - Extracts the video ID.
+    - Creates specific output and transcription directories based on the video ID.
+    - Downloads the audio track using yt-dlp.
+    - Saves the audio as an MP3 file in the designated output directory.
+3.  If a local file path is provided:
+    - Checks if the file exists.
+    - Converts the file to MP3 format using ffmpeg if it's not already MP3, placing it
+      in the designated output directory.
+    - Copies the file if it's already MP3 but not in the target location.
+4.  Splits the resulting MP3 audio file into smaller chunks using ffmpeg, adding a slight
+    overlap between chunks to avoid cutting words during transcription.
+5.  Transcribes each audio chunk individually using the OpenAI API (Whisper model).
+    Individual chunk transcriptions are saved.
+6.  Combines the individual chunk transcriptions sequentially:
+    - It identifies the overlapping text between adjacent chunks (last N words of the previous
+      chunk and first N words of the current chunk).
+    - Uses an AI model (via AITools) to intelligently merge these overlapping boundary sections.
+    - Concatenates the processed chunks to form the final transcription.
+7.  Generates a sanitized output filename including a timestamp and, if applicable,
+    the YouTube video ID and title.
+8.  Saves the final combined transcription to a text file in the designated transcriptions
+    directory (potentially within a video ID subdirectory).
+9.  Cleans up the temporary audio chunk files and directories.
+
+Requires:
+- Python 3.x
+- `openai` library
+- `python-dotenv` library
+- `yt-dlp` library (for YouTube downloads)
+- `ffmpeg` installed and available in the system PATH (for audio splitting and conversion)
+- An OpenAI API key set in a .env file or environment variables.
+"""
+
 from pathlib import Path
 from datetime import datetime
 import os
