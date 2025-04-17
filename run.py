@@ -8,12 +8,12 @@ import subprocess
 import argparse
 import re  # Add re import for sanitization
 import shutil
+import urllib.parse as urlparse # Add urllib.parse import
 from openai import OpenAI
 from dotenv import load_dotenv
 from lib.ai_tools import AITools
 from lib.logger import log_error, log_success, log_info, log_warning
 from lib.youtube import YouTube, YtdlpYouTube
-import urllib.parse as urlparse # Add urllib.parse import
 
 # Load environment variables from .env file
 load_dotenv(override=True)
