@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from lib.ai_tools import AITools
 from lib.logger import log_error, log_success, log_info, log_warning
 from lib.youtube import YouTube, YtdlpYouTube
+import urllib.parse as urlparse # Add urllib.parse import
 
 # Load environment variables from .env file
 load_dotenv(override=True)
@@ -211,14 +212,16 @@ def sanitize_filename(filename: str) -> str:
     # Remove leading/trailing underscores or periods
     sanitized = sanitized.strip('_.')
     # Limit length to avoid issues with long filenames (e.g., 100 chars)
-    return sanitized[:100] if len(sanitized) > 100 else sanitized
+    # Allow slightly longer for potential ID additions
+    return sanitized[:150] if len(sanitized) > 150 else sanitized
 
-def generate_output_filename(args, video_title: str | None, file_path: Path, timestamp: str) -> str:
+def generate_output_filename(args, video_title: str | None, file_path: Path, timestamp: str, video_id: str | None = None) -> str:
     """Generates the output filename for the transcription."""
     transcription_base_name = f"transcription_{timestamp}"
-    if args.youtube_url and video_title:
+    if args.youtube_url and video_title and video_id:
         sanitized_title = sanitize_filename(video_title)
-        return f"{transcription_base_name}-{sanitized_title}.txt"
+        # Include video ID in the filename
+        return f"{transcription_base_name}-{video_id}-{sanitized_title}.txt"
     else:
         audio_base = file_path.stem
         # Handle cases where stem might already contain 'transcription' or timestamp patterns if re-run
@@ -229,21 +232,26 @@ def generate_output_filename(args, video_title: str | None, file_path: Path, tim
 def save_transcription(transcription_text: str, output_path: Path):
     """Saves the transcription text to the specified file path."""
     try:
+        # Ensure parent directory exists
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w") as text_file:
             text_file.write(transcription_text)
         log_success(f"Transcription saved to {output_path}")
     except Exception as e:
         log_error(f"Error saving transcription to {output_path}: {e}")
 
-def clean_chunks_directory(file_path: Path):
+def clean_chunks_directory(chunks_dir: Path):
     """Remove chunks directory and its contents if it exists"""
-    chunks_dir = file_path.parent / f"{file_path.stem}_chunks"
-    if chunks_dir.exists():
+    # chunks_dir = file_path.parent / f"{file_path.stem}_chunks" # Removed calculation from file_path
+    if chunks_dir.exists() and chunks_dir.is_dir(): # Check if it's actually a directory
         log_info(f"Removing existing chunks directory: {chunks_dir}")
-        for chunk_file in chunks_dir.iterdir():
-            chunk_file.unlink()
-        chunks_dir.rmdir()
-        log_info(f"Removed chunks directory: {chunks_dir}")
+        try:
+            shutil.rmtree(chunks_dir) # Use shutil.rmtree for simplicity
+            log_success(f"Removed chunks directory: {chunks_dir}")
+        except Exception as e:
+            log_error(f"Error removing directory {chunks_dir}: {e}")
+    elif chunks_dir.exists():
+        log_warning(f"Path exists but is not a directory, cannot clean: {chunks_dir}")
 
 def parse_args():
     """Parse command-line arguments."""
@@ -257,25 +265,47 @@ def parse_args():
 
     return parser.parse_args()
 
+def get_youtube_video_id(url):
+    """Extracts the YouTube video ID from a URL."""
+    if url is None:
+        return None
+    try:
+        parsed_url = urlparse.urlparse(url)
+        if parsed_url.hostname in ('youtu.be',):
+            return parsed_url.path[1:]
+        if parsed_url.hostname in ('www.youtube.com', 'youtube.com'):
+            if parsed_url.path == '/watch':
+                query = urlparse.parse_qs(parsed_url.query)
+                return query.get('v', [None])[0]
+            if parsed_url.path.startswith('/embed/'):
+                return parsed_url.path.split('/')[2]
+            if parsed_url.path.startswith('/v/'):
+                return parsed_url.path.split('/')[2]
+    except Exception as e:
+        log_error(f"Error parsing YouTube URL to get video ID: {e}")
+    return None
+
 def main():
     args = parse_args()
 
     client = OpenAI()
     ai_tools = AITools(client)
 
-    # Ensure transcription directories exist
-    TRANSCRIPTIONS_DIR.mkdir(parents=True, exist_ok=True)
-    TRANSCRIPTIONS_CHUNKS_DIR.mkdir(parents=True, exist_ok=True)
+    # Base directories (can be overridden for YouTube)
+    output_dir = Path(args.output_dir)
+    transcriptions_dir = TRANSCRIPTIONS_DIR
+    transcriptions_chunks_dir = TRANSCRIPTIONS_CHUNKS_DIR
+
+    video_id = None # Initialize video_id
 
     # Determine output path and base filename
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True) # Create base output dir
 
     # Construct base filename
     if args.output_filename:
         base_filename = args.output_filename
     elif args.youtube_url:
-        base_filename = "youtube_audio"
+        base_filename = "youtube_audio" # Keep simple, ID will be added later
     elif args.file_path:
         base_filename = Path(args.file_path).stem
     else:
@@ -283,15 +313,34 @@ def main():
 
     if args.youtube_url:
         log_info(f"Processing YouTube URL: {args.youtube_url}")
+        video_id = get_youtube_video_id(args.youtube_url)
+        if not video_id:
+            log_error("Could not extract YouTube video ID. Exiting.")
+            sys.exit(1)
+        log_info(f"Extracted YouTube Video ID: {video_id}")
+
+        # Define ID-specific directories
+        output_dir = output_dir / video_id # Now points to outputs/VIDEO_ID
+        transcriptions_dir = transcriptions_dir / video_id # Now points to transcriptions/VIDEO_ID
+        transcriptions_chunks_dir = transcriptions_dir / "transcriptions_chunks" # Now points to transcriptions/VIDEO_ID/transcriptions_chunks
+
+        # Ensure ID-specific directories exist
+        output_dir.mkdir(parents=True, exist_ok=True)
+        transcriptions_dir.mkdir(parents=True, exist_ok=True)
+        transcriptions_chunks_dir.mkdir(parents=True, exist_ok=True)
+
         youtube: YouTube = YtdlpYouTube()
-        final_filename = f"{base_filename}.mp3"
-        file_path = output_dir / final_filename
+        # Include video ID in the final mp3 filename
+        final_filename = f"{base_filename}-{video_id}.mp3"
+        file_path = output_dir / final_filename # Path is now outputs/VIDEO_ID/youtube_audio-VIDEO_ID.mp3
 
         if not youtube.download_audio(args.youtube_url, file_path):
             log_error("Failed to download YouTube video. Exiting.")
             sys.exit(1)
 
         log_success(f"Successfully downloaded and saved YouTube video as {file_path}")
+        # Update base_filename to include ID for transcription filename generation
+        base_filename = f"{base_filename}-{video_id}"
 
     elif args.file_path:
         log_info(f"Processing local file: {args.file_path}")
@@ -299,6 +348,10 @@ def main():
         if not input_file.exists():
             log_error(f"Input file not found: {input_file}")
             sys.exit(1)
+
+        # Ensure base directories exist if not YouTube
+        transcriptions_dir.mkdir(parents=True, exist_ok=True)
+        transcriptions_chunks_dir.mkdir(parents=True, exist_ok=True)
 
         file_path = output_dir / f"{base_filename}.mp3"
 
@@ -352,7 +405,9 @@ def main():
         log_error("No input source specified (YouTube URL or file path).")
         sys.exit(1)
 
-    clean_chunks_directory(file_path)
+    # Define the expected chunks directory path based on the final file_path
+    expected_chunks_dir = file_path.parent / f"{file_path.stem}_chunks"
+    clean_chunks_directory(expected_chunks_dir) # Pass the specific dir path
 
     # Ensure the file exists before proceeding
     if not file_path.exists():
@@ -361,12 +416,13 @@ def main():
 
     # Split the audio into chunks
     log_info(f"Splitting audio into {MAX_CHUNK_DURATION}-minute chunks...")
-    audio_chunks = split_audio_file(file_path) # Use local file_path variable
+    # split_audio_file creates chunks relative to file_path.parent, which is correct (either base output or ID-specific output)
+    audio_chunks = split_audio_file(file_path)
 
     if not audio_chunks:
         log_warning("No audio chunks were created. Trying to transcribe the entire file...")
         # Fall back to transcribing the whole file
-        transcription_text = ai_tools.process_audio_transcription(file_path) # Use local file_path variable
+        transcription_text = ai_tools.process_audio_transcription(file_path)
     else:
         log_info(f"Transcribing {len(audio_chunks)} audio chunks...")
 
@@ -377,9 +433,10 @@ def main():
             chunk_transcription = ai_tools.process_audio_transcription(chunk_file)
             chunk_transcriptions.append(chunk_transcription)
 
-            # Save individual chunk transcription
+            # Save individual chunk transcription to the correct (potentially ID-specific) chunks dir
             chunk_transcription_filename = f"chunk_{i:03d}_transcription.txt"
-            chunk_transcription_path = TRANSCRIPTIONS_CHUNKS_DIR / chunk_transcription_filename
+            # Use the potentially ID-specific transcriptions_chunks_dir
+            chunk_transcription_path = transcriptions_chunks_dir / chunk_transcription_filename
             try:
                 with open(chunk_transcription_path, "w", encoding='utf-8') as chunk_text_file:
                     chunk_text_file.write(chunk_transcription)
@@ -393,8 +450,11 @@ def main():
 
     # Generate filename and save transcription
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_filename = generate_output_filename(args, base_filename, file_path, timestamp)
-    output_path = TRANSCRIPTIONS_DIR / output_filename
+    # Pass video_id (which is None if not YouTube) to generate_output_filename
+    # Use the potentially ID-specific base_filename for YouTube titles
+    output_filename = generate_output_filename(args, base_filename, file_path, timestamp, video_id)
+    # Use the potentially ID-specific transcriptions_dir
+    output_path = transcriptions_dir / output_filename
 
     save_transcription(transcription_text, output_path)
 
