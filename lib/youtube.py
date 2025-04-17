@@ -1,3 +1,11 @@
+"""
+Provides classes for interacting with YouTube, specifically for downloading audio content.
+
+This module defines an abstract base class `YouTube` outlining the interface
+for YouTube operations and a concrete implementation `YtdlpYouTube` that uses
+the `yt-dlp` command-line tool to download audio from YouTube URLs.
+"""
+
 from abc import ABC, abstractmethod
 from pathlib import Path
 import subprocess
@@ -9,7 +17,7 @@ class YouTube(ABC):
     """
 
     @abstractmethod
-    def download_audio(self, url: str, output_path: Path) -> None:
+    def download_audio(self, url: str, output_path: Path) -> bool:
         """
         Downloads content from a YouTube URL to the specified output path.
 
@@ -46,12 +54,13 @@ class YtdlpYouTube(YouTube):
             log_info(f"Running: {' '.join(cmd)}")
             result = subprocess.run(cmd, check=True)
 
-            if result.returncode == 0:
-                log_success("Successfully downloaded audio using yt-dlp")
-                return True
-            else:
+            if result.returncode != 0:
                 log_error(f"yt-dlp exited with code {result.returncode}")
                 return False
+
+            log_success("Successfully downloaded audio using yt-dlp")
+            return True
+
         except Exception as e:
             log_error(f"Error using yt-dlp: {e}")
             return False
