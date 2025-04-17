@@ -1,7 +1,12 @@
-from colorama import Fore, Style
-from colorama.ansi import AnsiFore, AnsiStyle
+"""
+Provides utility functions for logging messages to the console with various colors and styles using the colorama library.
+Includes functions for general logging, specific color logging (red, green, yellow, blue, cyan, magenta), bold text,
+and semantic logging levels (INFO, ERROR, SUCCESS, WARNING, DEBUG, LINK).
+"""
 
-def log(message: str, ansi: AnsiFore | AnsiStyle = Fore.WHITE) -> None:
+from colorama import Fore, Style
+
+def log(message: str, ansi: str = Fore.WHITE) -> None:
     """
     Logs a message to the console with a specified color.
 
@@ -12,7 +17,7 @@ def log(message: str, ansi: AnsiFore | AnsiStyle = Fore.WHITE) -> None:
     """
     print(f"{ansi}{message}{Style.RESET_ALL}")
 
-def log_red(message: str) -> None:
+def log_red(message: str) -> str:
     """
     Logs a message to the console in red.
 
@@ -21,7 +26,7 @@ def log_red(message: str) -> None:
     """
     return f"{Fore.RED}{message}{Style.RESET_ALL}"
 
-def log_green(message: str) -> None:
+def log_green(message: str) -> str:
     """
     Logs a message to the console in green.
 
@@ -30,7 +35,7 @@ def log_green(message: str) -> None:
     """
     return f"{Fore.GREEN}{message}{Style.RESET_ALL}"
 
-def log_yellow(message: str) -> None:
+def log_yellow(message: str) -> str:
     """
     Logs a message to the console in yellow.
 
@@ -39,7 +44,7 @@ def log_yellow(message: str) -> None:
     """
     return f"{Fore.YELLOW}{message}{Style.RESET_ALL}"
 
-def log_blue(message: str) -> None:
+def log_blue(message: str) -> str:
     """
     Logs a message to the console in blue.
 
@@ -48,7 +53,7 @@ def log_blue(message: str) -> None:
     """
     return f"{Fore.BLUE}{message}{Style.RESET_ALL}"
 
-def log_cyan(message: str) -> None:
+def log_cyan(message: str) -> str:
     """
     Logs a message to the console in cyan.
 
@@ -57,7 +62,7 @@ def log_cyan(message: str) -> None:
     """
     return f"{Fore.CYAN}{message}{Style.RESET_ALL}"
 
-def log_magenta(message: str) -> None:
+def log_magenta(message: str) -> str:
     """
     Logs a message to the console in magenta.
 
@@ -66,7 +71,7 @@ def log_magenta(message: str) -> None:
     """
     return f"{Fore.MAGENTA}{message}{Style.RESET_ALL}"
 
-def log_bold(message: str) -> None:
+def log_bold(message: str) -> str:
     """
     Logs a message to the console in bold.
 
