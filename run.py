@@ -274,7 +274,7 @@ def save_transcription(transcription_text: str, output_path: Path):
     try:
         # Ensure parent directory exists
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w") as text_file:
+        with open(output_path, "w", encoding='utf-8') as text_file:
             text_file.write(transcription_text)
         log_success(f"Transcription saved to {output_path}")
     except Exception as e:
