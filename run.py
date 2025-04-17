@@ -129,16 +129,6 @@ def split_audio_file(file_path: Path, chunk_duration_minutes=MAX_CHUNK_DURATION,
         log_error(f"Error splitting audio file: {e}")
         return []
 
-def transcribe_file(file_path: Path, client: OpenAI):
-    """Transcribe a single file using OpenAI API"""
-    log_info(f"Transcribing {file_path}...")
-    with open(file_path, "rb") as audio_file:
-        transcription = client.audio.transcriptions.create(
-            model="gpt-4o-mini-transcribe",
-            file=audio_file
-        )
-    return transcription.text
-
 def get_boundary_text(text: str, is_start: bool, word_count: int = BOUNDARY_WORD_COUNT) -> str:
     """
     Extract the first or last N words from a text.
