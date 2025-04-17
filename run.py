@@ -353,8 +353,8 @@ def clean_chunks_directory(file_path: Path):
         chunks_dir.rmdir()
         log_info(f"Removed chunks directory: {chunks_dir}")
 
-def main():
-    # --- Argument Parsing ---
+def parse_args():
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Transcribe audio from a YouTube video or a local file.")
     input_group = parser.add_mutually_exclusive_group(required=True)
     input_group.add_argument("-u", "--youtube-url", type=str, help="URL of the YouTube video to transcribe.")
@@ -363,8 +363,10 @@ def main():
     parser.add_argument("-d", "--output-dir", type=str, default=str(ROOT_DIR / "outputs"), help="Directory to save the processed audio file.")
     parser.add_argument("-o", "--output-filename", type=str, help="Base filename for the processed audio file (e.g., output). Extension and title (if YouTube) will be added.")
 
-    args = parser.parse_args()
-    # --- End Argument Parsing ---
+    return parser.parse_args()
+
+def main():
+    args = parse_args()
 
     client = OpenAI()
     ai_tools = AITools(client)
