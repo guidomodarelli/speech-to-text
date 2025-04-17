@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from openai import OpenAI
+from lib.ai_tools import AITools
 from pathlib import Path
 from dotenv import load_dotenv
 from datetime import datetime
@@ -262,7 +263,7 @@ def combine_chunk_boundaries(text1: str, text2: str, client: OpenAI) -> str:
     log_info(f"Combined content: '{combined_content}'")
     return combined_content
 
-def combine_chunks_sequentially(chunk_transcriptions: list[str], client: OpenAI) -> str:
+def combine_chunks_sequentially(chunk_transcriptions: list[str], ai_tools: AITools) -> str:
     """Combine chunks sequentially with overlaps (1-2, 2-3, 3-4, etc.) focusing on boundaries"""
     if not chunk_transcriptions:
         return ""
@@ -289,7 +290,7 @@ def combine_chunks_sequentially(chunk_transcriptions: list[str], client: OpenAI)
         start_of_second = get_boundary_text(curr_chunk, is_start=True)
 
         # Combine the boundaries
-        boundary_text = combine_chunk_boundaries(end_of_first, start_of_second, client)
+        boundary_text = ai_tools.resolve_overlap_boundaries(end_of_first, start_of_second)
 
         # Extract words that aren't part of our boundary overlap processing
         words_in_curr_chunk = curr_chunk.split(" ")
@@ -366,6 +367,7 @@ def main():
     # --- End Argument Parsing ---
 
     client = OpenAI()
+    ai_tools = AITools(client)
 
     # Ensure transcription directories exist
     TRANSCRIPTIONS_DIR.mkdir(parents=True, exist_ok=True)
@@ -470,7 +472,7 @@ def main():
     if not audio_chunks:
         log_warning("No audio chunks were created. Trying to transcribe the entire file...")
         # Fall back to transcribing the whole file
-        transcription_text = transcribe_file(file_path, client) # Use local file_path variable
+        transcription_text = ai_tools.process_audio_transcription(file_path) # Use local file_path variable
     else:
         log_info(f"Transcribing {len(audio_chunks)} audio chunks...")
 
@@ -478,14 +480,14 @@ def main():
         chunk_transcriptions: list[str] = []
         for i, chunk_file in enumerate(audio_chunks):
             log_info(f"Transcribing chunk {i+1}/{len(audio_chunks)}...")
-            chunk_transcription = transcribe_file(chunk_file, client)
+            chunk_transcription = ai_tools.process_audio_transcription(chunk_file)
             chunk_transcriptions.append(chunk_transcription)
 
             # Save individual chunk transcription
             chunk_transcription_filename = f"chunk_{i:03d}_transcription.txt"
             chunk_transcription_path = TRANSCRIPTIONS_CHUNKS_DIR / chunk_transcription_filename
             try:
-                with open(chunk_transcription_path, "w") as chunk_text_file:
+                with open(chunk_transcription_path, "w", encoding='utf-8') as chunk_text_file:
                     chunk_text_file.write(chunk_transcription)
                 log_info(f"Saved chunk transcription to {chunk_transcription_path}")
             except Exception as e:
@@ -493,7 +495,7 @@ def main():
 
         # Combine chunks sequentially (1-2, 2-3, 3-4, etc.)
         log_info("Combining chunks sequentially...")
-        transcription_text = combine_chunks_sequentially(chunk_transcriptions, client)
+        transcription_text = combine_chunks_sequentially(chunk_transcriptions, ai_tools)
 
     # Generate filename and save transcription
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
