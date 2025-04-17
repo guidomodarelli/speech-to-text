@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 
-from openai import OpenAI
-from lib.ai_tools import AITools
 from pathlib import Path
-from dotenv import load_dotenv
 from datetime import datetime
 import os
 import sys
 import subprocess
 import argparse
 import re  # Add re import for sanitization
+import shutil
+from openai import OpenAI
+from dotenv import load_dotenv
+from lib.ai_tools import AITools
 from lib.logger import log_error, log_success, log_info, log_warning
 from lib.youtube import YouTube, YtdlpYouTube
-import shutil
 
 # Load environment variables from .env file
 load_dotenv(override=True)
