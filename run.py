@@ -29,13 +29,12 @@ TRANSCRIPTIONS_CHUNKS_DIR = TRANSCRIPTIONS_DIR / "transcriptions_chunks"
 BOUNDARY_WORD_COUNT = 50
 MAX_CHUNK_DURATION = 7  # Maximum duration of each audio chunk in minutes
 # Maximum time to process from the audio file (in seconds, None for entire file)
-MAX_PROCESSING_DURATION = os.environ.get("MAX_PROCESSING_DURATION")
-if MAX_PROCESSING_DURATION is not None:
-    try:
-        MAX_PROCESSING_DURATION = float(MAX_PROCESSING_DURATION)
-    except ValueError:
-        log_error(f"Invalid MAX_PROCESSING_DURATION: {MAX_PROCESSING_DURATION}. Using entire file.")
-        MAX_PROCESSING_DURATION = None
+MAX_PROCESSING_DURATION: float | None = None
+try:
+    MAX_PROCESSING_DURATION = float(os.environ.get("MAX_PROCESSING_DURATION") or "")
+except ValueError:
+    log_error(f"Invalid MAX_PROCESSING_DURATION: {MAX_PROCESSING_DURATION}. Using entire file.")
+    MAX_PROCESSING_DURATION = None
 
 def get_audio_duration(file_path):
     """Get the duration of an audio file in seconds using ffmpeg"""
