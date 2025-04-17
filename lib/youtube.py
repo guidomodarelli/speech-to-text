@@ -24,7 +24,7 @@ class YtdlpYouTube(YouTube):
     Implementation of YouTube operations using yt-dlp.
     """
 
-    def download_audio(self, url: str, output_path: Path) -> None:
+    def download_audio(self, url: str, output_path: Path) -> bool:
         try:
             # Check if yt-dlp is installed
             try:
