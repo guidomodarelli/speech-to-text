@@ -326,6 +326,41 @@ def get_youtube_video_id(url):
     return None
 
 def main():
+    """
+    Main function to process audio from a YouTube URL or a local file for transcription.
+
+    Parses command-line arguments to determine the input source (YouTube URL or file path)
+    and output options.
+
+    Workflow:
+    1.  Parses command-line arguments using `parse_args`.
+    2.  Initializes the OpenAI client and AITools helper.
+    3.  Sets up base output and transcription directories.
+    4.  Determines the base filename for output files based on arguments or input source.
+    5.  If a YouTube URL is provided:
+        - Extracts the video ID.
+        - Creates video ID-specific subdirectories within the base output and transcription folders.
+        - Downloads the audio from the YouTube URL as an MP3 file into the ID-specific output directory.
+        - Updates the base filename to include the video ID.
+    6.  If a local file path is provided:
+        - Ensures the base transcription directories exist.
+        - If the input file is not an MP3, converts it to MP3 using ffmpeg and saves it to the base output directory.
+        - If the input file is already an MP3, copies it to the base output directory (if necessary).
+    7.  Handles potential errors during download or conversion, exiting if issues occur.
+    8.  Cleans any pre-existing audio chunk files from the expected chunks directory.
+    9.  Splits the processed MP3 audio file into smaller chunks based on `MAX_CHUNK_DURATION`.
+    10. If splitting is successful:
+        - Transcribes each audio chunk individually using `AITools`.
+        - Saves each chunk's transcription to a text file in the (potentially ID-specific) transcription chunks directory.
+        - Combines the individual chunk transcriptions sequentially, potentially using an AI model for better coherence via `combine_chunks_sequentially`.
+    11. If splitting fails or produces no chunks, attempts to transcribe the entire audio file at once.
+    12. Generates a final timestamped filename for the complete transcription.
+    13. Saves the final transcription text to the appropriate (potentially ID-specific) transcription directory.
+    14. Logs the final transcription content.
+
+    Exits the script with an error code if critical steps like input validation,
+    download, conversion, or transcription fail.
+    """
     args = parse_args()
 
     client = OpenAI()
