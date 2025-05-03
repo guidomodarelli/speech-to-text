@@ -29,10 +29,32 @@ class AITools():
         log_info(f"Transcribing {file_path}...")
         with open(file_path, "rb") as audio_file:
             transcription = self.client.audio.transcriptions.create(
-                model="gpt-4o-mini-transcribe",
-                file=audio_file
+                model="gpt-4o-mini-transcribe", # Consider using a model optimized for transcription if available
+                file=audio_file,
+                response_format="text" # Explicitly set default format
             )
         return transcription.text
+
+    def transcribe_audio_to_vtt(self, file_path: Path) -> str:
+        """
+        Transcribe a single audio file into VTT format using OpenAI API.
+
+        Args:
+            file_path: The path to the audio file.
+
+        Returns:
+            The transcription text in VTT format.
+        """
+        log_info(f"Transcribing {file_path} to VTT format...")
+        with open(file_path, "rb") as audio_file:
+            transcription = self.client.audio.transcriptions.create(
+                model="whisper-1", # Whisper generally provides timestamps
+                file=audio_file,
+                response_format="vtt",
+                timestamp_granularities=["segment"] # Request segment-level timestamps
+            )
+        # The API directly returns a string in VTT format when response_format="vtt"
+        return transcription
 
     def enhance_transcription_quality(self, transcription: str) -> str:
         """
