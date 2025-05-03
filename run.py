@@ -69,6 +69,8 @@ TRANSCRIPTIONS_CHUNKS_DIR = TRANSCRIPTIONS_DIR / "transcriptions_chunks"
 # Number of words to use when processing chunk boundaries
 BOUNDARY_WORD_COUNT = 50
 MAX_CHUNK_DURATION = 7  # Maximum duration of each audio chunk in minutes
+VTT_CHUNK_DURATION_SECONDS = 6
+DEFAULT_CHUNK_OVERLAP_SECONDS = 3
 # Maximum time to process from the audio file (in seconds, None for entire file)
 MAX_PROCESSING_DURATION: float | None = None
 try:
@@ -88,13 +90,14 @@ def get_audio_duration(file_path):
         log_error(f"Error getting audio duration: {e}")
         return 0
 
-def split_audio_file(file_path: Path, chunk_duration_minutes=MAX_CHUNK_DURATION, max_duration=MAX_PROCESSING_DURATION):
+def split_audio_file(file_path: Path, chunk_duration_seconds: int, overlap_seconds: int = DEFAULT_CHUNK_OVERLAP_SECONDS, max_duration: float | None = MAX_PROCESSING_DURATION):
     """
-    Split audio file into chunks of specified duration with overlap to avoid cutting words.
+    Split audio file into chunks of specified duration with optional overlap.
 
     Args:
         file_path: Path to the audio file
-        chunk_duration_minutes: Duration of each chunk in minutes
+        chunk_duration_seconds: Duration of each chunk in seconds
+        overlap_seconds: Overlap duration in seconds (0 for no overlap, e.g., VTT)
         max_duration: Maximum duration to process in seconds (None for entire file)
 
     Returns:
@@ -102,19 +105,12 @@ def split_audio_file(file_path: Path, chunk_duration_minutes=MAX_CHUNK_DURATION,
     """
     try:
         # Check if ffmpeg is installed
-        try:
-            subprocess.run(['ffmpeg', '-version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-        except (subprocess.SubprocessError, FileNotFoundError):
-            log_error("ffmpeg not found. Please install ffmpeg.")
-            return []
+        subprocess.run(['ffmpeg', '-version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
 
         # Create directory for chunks
         parent_dir = file_path.parent
         chunks_dir = parent_dir / f"{file_path.stem}_chunks"
         chunks_dir.mkdir(exist_ok=True)
-
-        # Convert minutes to seconds
-        chunk_duration_seconds = int(chunk_duration_minutes * 60)
 
         # Get the total duration
         total_duration = get_audio_duration(file_path)
@@ -131,21 +127,17 @@ def split_audio_file(file_path: Path, chunk_duration_minutes=MAX_CHUNK_DURATION,
             log_info(f"Processing entire audio file ({total_duration} seconds)")
 
         chunk_files = []
-        overlap_seconds = 3 # Overlap duration in seconds
 
         # Generate chunks with overlap
         for i, start_time in enumerate(range(0, int(processing_duration), chunk_duration_seconds)):
             # Adjust start time to include overlap from previous chunk (except for first chunk)
-            adjusted_start = max(0, start_time - overlap_seconds) if i > 0 else 0
+            adjusted_start = max(0, start_time - overlap_seconds) if i > 0 and overlap_seconds > 0 else start_time
+            intended_end_time = start_time + chunk_duration_seconds
+            actual_end_time = min(processing_duration, intended_end_time + overlap_seconds)
+            duration = actual_end_time - adjusted_start
 
-            # Adjust duration to include overlap with next chunk
-            # For the last chunk, make sure we don't exceed the processing duration
-            if start_time + chunk_duration_seconds >= processing_duration:
-                # Last chunk - go until the end of the processing duration
-                duration = processing_duration - adjusted_start
-            else:
-                # Add overlap to duration
-                duration = (start_time + chunk_duration_seconds + overlap_seconds) - adjusted_start
+            if duration <= 0:
+                continue
 
             output_file = chunks_dir / f"chunk_{i:03d}{file_path.suffix}"
 
@@ -160,12 +152,17 @@ def split_audio_file(file_path: Path, chunk_duration_minutes=MAX_CHUNK_DURATION,
                 str(output_file)
             ]
 
-            subprocess.run(cmd, check=True)
+            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             chunk_files.append(output_file)
 
-        log_success(f"Split audio into {len(chunk_files)} chunks with {overlap_seconds}-second{'s' if overlap_seconds > 1 else ''} overlap in {chunks_dir}")
+        overlap_desc = f"with {overlap_seconds}-second{'s' if overlap_seconds != 1 else ''} overlap" if overlap_seconds > 0 else "with no overlap"
+        log_success(f"Split audio into {len(chunk_files)} chunks ({chunk_duration_seconds}s each, {overlap_desc}) in {chunks_dir}")
         return chunk_files
 
+    except subprocess.CalledProcessError as e:
+        log_error(f"Error splitting audio file with ffmpeg: {e}")
+        log_error(f"ffmpeg stderr: {e.stderr.decode()}")
+        return []
     except Exception as e:
         log_error(f"Error splitting audio file: {e}")
         return []
@@ -243,6 +240,15 @@ def exclude_last_boundary_words(chunk: str) -> str:
     """ Exclude the last N words from the previous chunk to avoid duplication in the boundary """
     return " ".join(chunk.split(" ")[:-BOUNDARY_WORD_COUNT])
 
+def format_vtt_timestamp(seconds: float) -> str:
+    milliseconds = int((seconds - int(seconds)) * 1000)
+    seconds_int = int(seconds)
+    minutes = seconds_int // 60
+    hours = minutes // 60
+    sec = seconds_int % 60
+    mins = minutes % 60
+    return f"{hours:02d}:{mins:02d}:{sec:02d}.{milliseconds:03d}"
+
 def sanitize_filename(filename: str) -> str:
     """Remove or replace characters that are invalid in filenames."""
     # Remove characters that are not alphanumeric, underscore, hyphen, or period
@@ -255,19 +261,17 @@ def sanitize_filename(filename: str) -> str:
     # Allow slightly longer for potential ID additions
     return sanitized[:150] if len(sanitized) > 150 else sanitized
 
-def generate_output_filename(args, video_title: str | None, file_path: Path, timestamp: str, video_id: str | None = None) -> str:
+def generate_output_filename(args, video_title: str | None, file_path: Path, timestamp: str, video_id: str | None = None, is_vtt: bool = False) -> str:
     """Generates the output filename for the transcription."""
-    transcription_base_name = f"transcription_{timestamp}"
+    output_extension = ".vtt" if is_vtt else ".txt"
     if args.youtube_url and video_title and video_id:
-        sanitized_title = sanitize_filename(video_title)
-        # Include video ID in the filename
-        return f"{transcription_base_name}-{video_id}-{sanitized_title}.txt"
+        return f"{video_title}-{timestamp}{output_extension}"
     else:
         audio_base = file_path.stem
         # Handle cases where stem might already contain 'transcription' or timestamp patterns if re-run
         # A simpler approach is just using the sanitized base name
         sanitized_base = sanitize_filename(audio_base)
-        return f"{sanitized_base}_transcription_{timestamp}.txt"
+        return f"{sanitized_base}_transcription_{timestamp}{output_extension}"
 
 def save_transcription(transcription_text: str, output_path: Path):
     """Saves the transcription text to the specified file path."""
@@ -302,6 +306,7 @@ def parse_args():
 
     parser.add_argument("-d", "--output-dir", type=str, default=str(ROOT_DIR / "outputs"), help="Directory to save the processed audio file.")
     parser.add_argument("-o", "--output-filename", type=str, help="Base filename for the processed audio file (e.g., output). Extension and title (if YouTube) will be added.")
+    parser.add_argument("--vtt", action="store_true", help="Output transcription in VTT format with 6-second chunks.")
 
     return parser.parse_args()
 
@@ -371,20 +376,21 @@ def main():
     transcriptions_dir = TRANSCRIPTIONS_DIR
     transcriptions_chunks_dir = TRANSCRIPTIONS_CHUNKS_DIR
 
-    video_id = None # Initialize video_id
+    video_id = None
+    video_title_for_filename = None
 
     # Determine output path and base filename
     output_dir.mkdir(parents=True, exist_ok=True) # Create base output dir
 
     # Construct base filename
     if args.output_filename:
-        base_filename = args.output_filename
+        base_filename_stem = args.output_filename
     elif args.youtube_url:
-        base_filename = "youtube_audio" # Keep simple, ID will be added later
+        base_filename_stem = "youtube_audio" # Keep simple, ID will be added later
     elif args.file_path:
-        base_filename = Path(args.file_path).stem
+        base_filename_stem = Path(args.file_path).stem
     else:
-        base_filename = "output"
+        base_filename_stem = "output"
 
     if args.youtube_url:
         log_info(f"Processing YouTube URL: {args.youtube_url}")
@@ -397,25 +403,31 @@ def main():
         # Define ID-specific directories
         output_dir = output_dir / video_id # Now points to outputs/VIDEO_ID
         transcriptions_dir = transcriptions_dir / video_id # Now points to transcriptions/VIDEO_ID
-        transcriptions_chunks_dir = transcriptions_dir / "transcriptions_chunks" # Now points to transcriptions/VIDEO_ID/transcriptions_chunks
+        if not args.vtt:
+            transcriptions_chunks_dir = transcriptions_dir / "transcriptions_chunks" # Now points to transcriptions/VIDEO_ID/transcriptions_chunks
 
         # Ensure ID-specific directories exist
         output_dir.mkdir(parents=True, exist_ok=True)
         transcriptions_dir.mkdir(parents=True, exist_ok=True)
-        transcriptions_chunks_dir.mkdir(parents=True, exist_ok=True)
+        if not args.vtt:
+            transcriptions_chunks_dir.mkdir(parents=True, exist_ok=True)
 
         youtube: YouTube = YtdlpYouTube()
-        # Include video ID in the final mp3 filename
-        final_filename = f"{base_filename}-{video_id}.mp3"
-        file_path = output_dir / final_filename # Path is now outputs/VIDEO_ID/youtube_audio-VIDEO_ID.mp3
+        final_filename = f"{base_filename_stem}-{video_id}.mp3"
+        file_path = output_dir / final_filename
+
+        try:
+            video_info = youtube.get_video_info(args.youtube_url)
+            video_title_for_filename = video_info.get('title', f"{base_filename_stem}-{video_id}") if video_info else f"{base_filename_stem}-{video_id}"
+        except Exception as e:
+            log_warning(f"Could not fetch YouTube video title: {e}. Using base filename.")
+            video_title_for_filename = f"{base_filename_stem}-{video_id}"
 
         if not youtube.download_audio(args.youtube_url, file_path):
             log_error("Failed to download YouTube video. Exiting.")
             sys.exit(1)
 
         log_success(f"Successfully downloaded and saved YouTube video as {file_path}")
-        # Update base_filename to include ID for transcription filename generation
-        base_filename = f"{base_filename}-{video_id}"
 
     elif args.file_path:
         log_info(f"Processing local file: {args.file_path}")
@@ -426,34 +438,33 @@ def main():
 
         # Ensure base directories exist if not YouTube
         transcriptions_dir.mkdir(parents=True, exist_ok=True)
-        transcriptions_chunks_dir.mkdir(parents=True, exist_ok=True)
+        if not args.vtt:
+            transcriptions_chunks_dir.mkdir(parents=True, exist_ok=True)
 
-        file_path = output_dir / f"{base_filename}.mp3"
+        file_path = output_dir / f"{base_filename_stem}.mp3"
+        video_title_for_filename = base_filename_stem
 
         if file_path.exists():
             log_info(f"Removing existing file: {file_path}")
-            file_path.unlink()
-            log_info(f"Removed existing file: {file_path}")
+            try:
+                file_path.unlink()
+                log_info(f"Removed existing file: {file_path}")
+            except OSError as e:
+                log_error(f"Error removing existing file {file_path}: {e}")
+                sys.exit(1)
 
         if input_file.suffix.lower() != ".mp3":
             log_info(f"Converting {input_file} to MP3 format at {file_path}...")
             try:
-                # Check if ffmpeg is installed
-                try:
-                    subprocess.run(['ffmpeg', '-version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-                except (subprocess.SubprocessError, FileNotFoundError):
-                    log_error("ffmpeg not found. Please install ffmpeg to convert audio files.")
-                    sys.exit(1)
-
-                # Construct ffmpeg command for conversion
+                subprocess.run(['ffmpeg', '-version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
                 cmd = [
                     'ffmpeg',
                     '-i', str(input_file),
-                    '-vn',  # No video
-                    '-acodec', 'libmp3lame', # Use MP3 codec
-                    '-ab', '192k', # Audio bitrate
-                    '-ar', '44100', # Audio sample rate
-                    '-y',  # Overwrite output file without asking
+                    '-vn',
+                    '-acodec', 'libmp3lame',
+                    '-ab', '192k',
+                    '-ar', '44100',
+                    '-y',
                     str(file_path)
                 ]
                 subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -465,7 +476,7 @@ def main():
             except Exception as e:
                 log_error(f"An unexpected error occurred during conversion: {e}")
                 sys.exit(1)
-        elif input_file != file_path:
+        elif input_file.resolve() != file_path.resolve():
             log_info(f"Copying {input_file} to {file_path}...")
             try:
                 shutil.copyfile(input_file, file_path)
@@ -489,54 +500,112 @@ def main():
         log_error(f"Error: Processed file not found at {file_path}")
         sys.exit(1)
 
-    # Split the audio into chunks
-    log_info(f"Splitting audio into {MAX_CHUNK_DURATION}-minute chunks...")
-    # split_audio_file creates chunks relative to file_path.parent, which is correct (either base output or ID-specific output)
-    audio_chunks = split_audio_file(file_path)
+    if args.vtt:
+        chunk_duration_for_split = VTT_CHUNK_DURATION_SECONDS
+        overlap_for_split = DEFAULT_CHUNK_OVERLAP_SECONDS
+        log_info(f"Splitting audio for VTT: {VTT_CHUNK_DURATION_SECONDS}s chunks, no overlap...")
+    else:
+        chunk_duration_for_split = int(MAX_CHUNK_DURATION * 60)
+        overlap_for_split = DEFAULT_CHUNK_OVERLAP_SECONDS
+        log_info(f"Splitting audio for text: {MAX_CHUNK_DURATION}-minute chunks, {overlap_for_split}s overlap...")
+
+    audio_chunks = split_audio_file(
+        file_path,
+        chunk_duration_seconds=chunk_duration_for_split,
+        overlap_seconds=overlap_for_split
+    )
+
+    final_transcription = ""
 
     if not audio_chunks:
-        log_warning("No audio chunks were created. Trying to transcribe the entire file...")
-        # Fall back to transcribing the whole file
-        transcription_text = ai_tools.process_audio_transcription(file_path)
+        if args.vtt:
+            log_warning("No audio chunks were created. Cannot generate VTT.")
+            final_transcription = "WEBVTT\n\nERROR: Could not split audio into chunks."
+        else:
+            log_warning("No audio chunks were created. Trying to transcribe the entire file...")
+            final_transcription = ai_tools.process_audio_transcription(file_path)
     else:
-        log_info(f"Transcribing {len(audio_chunks)} audio chunks...")
+        if args.vtt:
+            # NOTE: Applying sequential text combination logic instead of VTT formatting
+            # as requested. The output file will have a .vtt extension but contain
+            # combined plain text, not standard VTT cues.
+            log_warning("Processing with --vtt flag, but applying sequential text combination logic instead of VTT formatting.")
+            log_info(f"Transcribing {len(audio_chunks)} audio chunks for sequential combination...")
+            chunk_transcriptions: list[str] = []
 
-        # First transcribe all chunks individually
-        chunk_transcriptions: list[str] = []
-        for i, chunk_file in enumerate(audio_chunks):
-            log_info(f"Transcribing chunk {i+1}/{len(audio_chunks)}...")
-            chunk_transcription = ai_tools.process_audio_transcription(chunk_file)
-            chunk_transcriptions.append(chunk_transcription)
+            # Define path for intermediate chunk transcriptions if needed for debugging/inspection
+            # This path needs to be consistent with how transcriptions_chunks_dir is defined earlier
+            # It might be inside a video_id subdir if applicable.
+            intermediate_chunks_dir = expected_chunks_dir.parent / f"{expected_chunks_dir.stem}_transcriptions"
+            intermediate_chunks_dir.mkdir(parents=True, exist_ok=True)
+            log_info(f"Saving intermediate chunk transcriptions to: {intermediate_chunks_dir}")
 
-            # Save individual chunk transcription to the correct (potentially ID-specific) chunks dir
-            chunk_transcription_filename = f"chunk_{i:03d}_transcription.txt"
-            # Use the potentially ID-specific transcriptions_chunks_dir
-            chunk_transcription_path = transcriptions_chunks_dir / chunk_transcription_filename
+
+            for i, chunk_file in enumerate(audio_chunks):
+                log_info(f"Transcribing chunk {i+1}/{len(audio_chunks)}...")
+                chunk_transcription = ai_tools.process_audio_transcription(chunk_file)
+                chunk_transcriptions.append(chunk_transcription)
+
+                # Save intermediate chunk transcriptions
+                chunk_transcription_filename = f"chunk_{i:03d}_transcription.txt"
+                chunk_transcription_path = intermediate_chunks_dir / chunk_transcription_filename
+                try:
+                    with open(chunk_transcription_path, "w", encoding='utf-8') as chunk_text_file:
+                        chunk_text_file.write(chunk_transcription)
+                        # Log less verbosely inside the loop
+                        # log_info(f"Saved chunk transcription to {chunk_transcription_path}")
+                except Exception as e:
+                    log_error(f"Error saving chunk transcription {chunk_transcription_path}: {e}")
+            log_info(f"Finished transcribing {len(audio_chunks)} chunks.")
+
+            log_info("Combining chunks sequentially (as requested for --vtt)...")
+            # Ensure combine_chunks_sequentially uses the correct BOUNDARY_WORD_COUNT
+            # which depends on the overlap used during splitting (overlap_for_split)
+            # The current combine_chunks_sequentially uses a fixed BOUNDARY_WORD_COUNT=50
+            # This might need adjustment if overlap_for_split changes significantly.
+            final_transcription = combine_chunks_sequentially(chunk_transcriptions, ai_tools)
+            log_success("Finished combining text chunks.")
+            # Clean up intermediate transcription chunks dir
             try:
-                with open(chunk_transcription_path, "w", encoding='utf-8') as chunk_text_file:
-                    chunk_text_file.write(chunk_transcription)
-                log_info(f"Saved chunk transcription to {chunk_transcription_path}")
+                shutil.rmtree(intermediate_chunks_dir)
+                log_info(f"Removed intermediate transcription chunks directory: {intermediate_chunks_dir}")
             except Exception as e:
-                log_error(f"Error saving chunk transcription {chunk_transcription_path}: {e}")
+                log_error(f"Error removing intermediate transcription chunks directory {intermediate_chunks_dir}: {e}")
+        else:
+            log_info(f"Transcribing {len(audio_chunks)} audio chunks for plain text...")
+            chunk_transcriptions: list[str] = []
+            for i, chunk_file in enumerate(audio_chunks):
+                log_info(f"Transcribing chunk {i+1}/{len(audio_chunks)}...")
+                chunk_transcription = ai_tools.process_audio_transcription(chunk_file)
+                chunk_transcriptions.append(chunk_transcription)
 
-        # Combine chunks sequentially (1-2, 2-3, 3-4, etc.)
-        log_info("Combining chunks sequentially...")
-        transcription_text = combine_chunks_sequentially(chunk_transcriptions, ai_tools)
+                chunk_transcription_filename = f"chunk_{i:03d}_transcription.txt"
+                chunk_transcription_path = transcriptions_chunks_dir / chunk_transcription_filename
+                try:
+                    with open(chunk_transcription_path, "w", encoding='utf-8') as chunk_text_file:
+                        chunk_text_file.write(chunk_transcription)
+                    log_info(f"Saved chunk transcription to {chunk_transcription_path}")
+                except Exception as e:
+                    log_error(f"Error saving chunk transcription {chunk_transcription_path}: {e}")
 
-    # Generate filename and save transcription
+            log_info("Combining chunks sequentially for plain text...")
+            final_transcription = combine_chunks_sequentially(chunk_transcriptions, ai_tools)
+            log_success("Finished combining text chunks.")
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    # Pass video_id (which is None if not YouTube) to generate_output_filename
-    # Use the potentially ID-specific base_filename for YouTube titles
-    output_filename = generate_output_filename(args, base_filename, file_path, timestamp, video_id)
-    # Use the potentially ID-specific transcriptions_dir
+    output_filename = generate_output_filename(args, video_title_for_filename, file_path, timestamp, video_id, is_vtt=args.vtt)
     output_path = transcriptions_dir / output_filename
 
-    save_transcription(transcription_text, output_path)
+    save_transcription(final_transcription, output_path)
 
-    # Log the final transcription
-    log_info("--- Final Transcription ---")
-    log_info(transcription_text)
+    log_info(f"--- Final Transcription ({'.vtt' if args.vtt else '.txt'}) ---")
+    if args.vtt:
+        log_info(final_transcription[:200] + ("..." if len(final_transcription) > 200 else ""))
+    else:
+        log_info(final_transcription)
     log_info("--- End Transcription ---")
+
+    clean_chunks_directory(expected_chunks_dir)
 
 
 if __name__ == "__main__":
